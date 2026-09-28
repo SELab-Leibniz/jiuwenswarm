@@ -24,6 +24,8 @@ class ReviewProgressGuard:
                 or completed_workers < 1 or completed_workers <= self._last_completed_workers):
             return False
         verification = state.verification
+        if verification is None and (state.policy.verify_command or state.checks):
+            return False
         if verification is not None and verification.candidate != state.candidate:
             return False
         signature = hashlib.sha256(json.dumps({

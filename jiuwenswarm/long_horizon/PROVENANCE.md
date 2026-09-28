@@ -72,6 +72,10 @@ and does not represent a paid-model evaluation.
 
 Sync basis: Chrys 0e99732ba6b71ddd7ec1b0f6c3df552a90416ecd (exact-candidate verification). PACT Git-link export is a separately pinned host wheel; Jiuwen SDK uv.lock remains unchanged.
 
+Also synchronized Chrys `650483a113e7235befa8693a898a1bdf0b34b7f9`:
+registered public checks must have a verification before consuming a reviewed
+round. An unverified Worker save cannot manufacture a stop threshold.
+
 The next benchmark treatment can select the external Core wheel SHA-256
 `592efcacf132b9b79f8be87d64bd8a49e47c2f90286db60bf5c5fd48131d77a9`.
 It comes from PACT `a2e50f6709caaa29e3bbd87b114d981a543ae00c` plus the

@@ -13,10 +13,21 @@ def state(tree="a", feedback="Need parser integration"):
                  verification=State(status="failed", candidate=candidate, check_results=[{"name":"public", "version":1,
                                     "status":"failed", "exit_code":1}]), contract_revision=1,
                  contract={"goal":"fixture"}, constraints=[], checks=[],
+                 policy=State(verify_command=None),
                  unresolved_assumptions=[], user_decisions=[])
 
 
 class ProgressGuardTests(unittest.TestCase):
+    def test_unverified_registered_checks_do_not_consume_a_round(self):
+        guard=ReviewProgressGuard();current=state()
+        current.verification=None;current.checks=[{'name':'public'}]
+        for count in range(1,4):self.assertFalse(guard.observe(current,count))
+        self.assertEqual(guard.evidence()['reviewed_inputs'],[])
+        verified=state();verified.checks=current.checks
+        self.assertFalse(guard.observe(verified,3))
+        self.assertFalse(guard.observe(verified,4))
+        self.assertTrue(guard.observe(verified,5))
+
     def test_only_distinct_completed_workers_count_even_when_review_is_deduplicated(self):
         guard = ReviewProgressGuard(); current = state()
         self.assertFalse(guard.observe(current, 0)); self.assertFalse(guard.observe(current, 1))
