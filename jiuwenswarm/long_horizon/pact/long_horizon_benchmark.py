@@ -59,6 +59,7 @@ from pact_core.runtime.text_plan import read_text_plan
 from jiuwenswarm.long_horizon.pact.benchmark import BenchmarkBinding, record_benchmark_result
 from jiuwenswarm.long_horizon.pact.benchmark_native import record_work_budget
 from jiuwenswarm.long_horizon.pact.configuration import jiuwenswarm_configuration
+from jiuwenswarm.long_horizon.pact.long_horizon_progress import ReviewProgressGuard
 from jiuwenswarm.long_horizon.pact.long_horizon_evidence import (
     CLARIFIER_ADAPTER_ID,
     RESULT_SCHEMA,
@@ -356,14 +357,29 @@ class LongHorizonBenchmark:
             self._invocation.stop_reason = "max_turns"
             return frozen
         acceptance_blocked = False
+        no_progress = False
+        progress_guard = ReviewProgressGuard()
 
         def stop_driver() -> bool:
-            nonlocal acceptance_blocked
-            if self._abort.is_set():
+            nonlocal acceptance_blocked, no_progress
+            if self._abort.is_set() or no_progress:
                 return True
             current = runtime.read_work(state.work_id)
             if _acceptance_blocked_only_by_questions(current):
                 acceptance_blocked = True
+                return True
+            ledger = read_json(runtime.workspace / ".pact" / "bench" / "trials" / args.trial_id / "budget.json")
+            completed = sum(call.get("purpose") == "implementation" and call.get("status") == "completed"
+                            for call in ledger.get("calls", []))
+            previous_completed = progress_guard._last_completed_workers
+            stalled = progress_guard.observe(current, completed)
+            if progress_guard._last_completed_workers != previous_completed:
+                (output / "progress-observations.json").write_text(
+                    json.dumps(progress_guard.evidence(), indent=2, sort_keys=True) + "\n")
+            if stalled:
+                no_progress = True
+                (output / "no-progress-stop.json").write_text(
+                    json.dumps(progress_guard.evidence(), indent=2, sort_keys=True) + "\n")
                 return True
             return False
 
@@ -377,7 +393,9 @@ class LongHorizonBenchmark:
         self._invocation.driver_result = result
         self._invocation.state = result.snapshot
         self._invocation.stop_reason = (
-            "acceptance_blocked_unresolved_questions"
+            "no_progress_repeated_reviews"
+            if no_progress and result.stop_reason == "invocation_stopped" and not self._abort.is_set()
+            else "acceptance_blocked_unresolved_questions"
             if (acceptance_blocked and result.stop_reason == "invocation_stopped"
                 and not self._abort.is_set() and _acceptance_blocked_only_by_questions(result.snapshot))
             else result.stop_reason

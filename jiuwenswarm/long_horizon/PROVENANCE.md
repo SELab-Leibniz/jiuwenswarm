@@ -59,3 +59,13 @@ Its dependency version is unchanged but its bytes and public WorkRuntime/
 BenchDriver interfaces differ from the legacy wheel. Both are explicitly pinned
 by their selecting benchmark configuration; they cannot be silently substituted.
 The original JiuwenSwarm uv.lock and SDK revisions remain unchanged.
+
+
+## Caller-owned repeat-cycle stop (2026-09-29)
+
+The original-task benchmark caller stops after three identical reviewed inputs
+within six completed Worker rounds. It reads the pinned Core budget ledger;
+bookkeeping revisions and polling do not count. Native Core controls verify
+that the latest candidate still exports without acceptance. Core/SDK internals
+and independent grading are unchanged. The control fixture has its own budget
+and does not represent a paid-model evaluation.
