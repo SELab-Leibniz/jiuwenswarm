@@ -342,6 +342,9 @@ class LongHorizonBenchmark:
             self._invocation.stop_reason = "invocation_stopped"
         if self._abort.is_set() or _phase(state) != "first_review_done":
             return frozen
+        if _acceptance_blocked_only_by_questions(state):
+            self._invocation.stop_reason = "acceptance_blocked_unresolved_questions"
+            return frozen
         remaining_turns = args.max_turns - turns_used
         window_seconds = args.window_seconds
         if window is not None and window_seconds is not None:
@@ -352,16 +355,33 @@ class LongHorizonBenchmark:
         if remaining_turns < 1 and state.acceptance is None:
             self._invocation.stop_reason = "max_turns"
             return frozen
+        acceptance_blocked = False
+
+        def stop_driver() -> bool:
+            nonlocal acceptance_blocked
+            if self._abort.is_set():
+                return True
+            current = runtime.read_work(state.work_id)
+            if _acceptance_blocked_only_by_questions(current):
+                acceptance_blocked = True
+                return True
+            return False
+
         result = BenchDriver(runtime, worker, reviewer, config=config).run(
             state.work_id,
             expected_revision=state.revision,
             max_turns=max(1, remaining_turns),
             window_seconds=window_seconds,
-            stop_requested=self._abort.is_set,
+            stop_requested=stop_driver,
         )
         self._invocation.driver_result = result
         self._invocation.state = result.snapshot
-        self._invocation.stop_reason = result.stop_reason
+        self._invocation.stop_reason = (
+            "acceptance_blocked_unresolved_questions"
+            if (acceptance_blocked and result.stop_reason == "invocation_stopped"
+                and not self._abort.is_set() and _acceptance_blocked_only_by_questions(result.snapshot))
+            else result.stop_reason
+        )
         return frozen
 
     def _resolve_execution(self, workspace: Path) -> Any:
@@ -1139,6 +1159,21 @@ def _public_passed(state: WorkSnapshot) -> bool:
         state.verification.status == "passed"
         or (state.verification.status == "unavailable" and state.policy.allow_unverified)
     )
+
+
+def _acceptance_blocked_only_by_questions(state: WorkSnapshot) -> bool:
+    """Stop only after Core's complete Gate for this exact candidate.
+
+    Synced from Chrys suite f74e1fd21646a1c3c6e878a86300bcb8575c7a8d.
+    The unresolved questions and unaccepted state remain intact for export.
+    """
+    if (state.status != "blocked" or not state.unresolved_assumptions
+        or state.acceptance is not None or state.delivery is not None or state.review is None
+        or state.review.candidate != state.candidate
+        or set(state.review.reasons) != {"gate_complete", "unresolved_user_questions"}
+        or not _public_passed(state)):
+        return False
+    return not state.review.complete
 
 
 def _acceptance_input(state: WorkSnapshot) -> dict[str, object]:
