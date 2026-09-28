@@ -497,10 +497,11 @@ class JiuwenWorker:
         interrupted = False
         budget_observed = False
         budget_stop_task: asyncio.Task | None = None
+        native_session: str | None = None
         started = time.monotonic()
 
         async def read_stdout() -> None:
-            nonlocal terminal, protocol_error, budget_observed, budget_stop_task
+            nonlocal terminal, protocol_error, budget_observed, budget_stop_task, native_session
             assert process is not None and process.stdout is not None
             with (output_dir / "events.jsonl").open("w", encoding="utf-8") as event_log, \
                     (output_dir / "stdout.jsonl").open("w", encoding="utf-8") as raw_log:
@@ -514,14 +515,15 @@ class JiuwenWorker:
                                 raise ValueError("record after terminal")
                             if record.get("sequence") != len(records) or record.get("request_id") != request_id:
                                 raise ValueError("invalid correlation or sequence")
-                            previous_sessions = {item.get("session_id") for item in records if item.get("session_id")}
-                            if previous_sessions and record.get("session_id") not in previous_sessions:
+                            if native_session and record.get("session_id") != native_session:
                                 raise ValueError("native session identity changed")
                             if record.get("type") == "result":
                                 OneShotRunResult.from_dict(record)
                                 terminal = record
                             else:
                                 OneShotEvent.from_dict(record)
+                            if record.get("session_id"):
+                                native_session = record["session_id"]
                             records.append(record)
                             event_log.write(json.dumps(redactor.value(record), ensure_ascii=False, allow_nan=False) + "\n")
                             event_log.flush()
@@ -605,6 +607,8 @@ class JiuwenWorker:
             # Record both submitted and archived configurations, without claiming
             # that an after-run file proves every in-memory setting used at runtime.
             metadata["archived_config_sha256"] = _sha256(config_path)
+            metadata["protocol_error"] = protocol_error
+            _json_write(output_dir / "metadata.json", metadata, redactor)
 
         actual_exit = process.returncode if process is not None else 1
         assert actual_exit is not None

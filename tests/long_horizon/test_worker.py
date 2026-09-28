@@ -158,6 +158,22 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.exception.result.exit_code, 4)
         self.assertEqual(self.metadata()["actual_exit_code"], 4)
 
+    async def test_process_signal_is_interruption_without_budget_evidence(self):
+        worker = self.worker("os.kill(os.getpid(), signal.SIGTERM)")
+        with self.assertRaises(WorkerExecutionError) as context:
+            await self.run_worker(worker)
+        self.assertEqual(context.exception.result.status, "cancelled")
+        self.assertEqual(self.metadata()["signal"], 15)
+        self.assertFalse(self.metadata()["budget_stop_observed"])
+
+    async def test_missing_executable_records_startup_failure(self):
+        worker = JiuwenWorker(self.root / "does-not-exist", self.template)
+        with self.assertRaises(WorkerExecutionError) as context:
+            await self.run_worker(worker)
+        self.assertEqual(context.exception.code, "STARTUP_FAILED")
+        self.assertIsNone(self.metadata()["actual_exit_code"])
+        self.assertIn("finished_at_unix", self.metadata())
+
     async def test_runtime_failure_keeps_usage_and_safe_error(self):
         worker = self.worker("""
         emit(result(status='failed', exit_code=1,
