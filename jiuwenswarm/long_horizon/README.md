@@ -15,6 +15,18 @@ Chrys solver。`pact-core` 继续负责 campaign 状态、worktree、验证和�
 文件、行范围和实际工具证据。初版关闭外部记忆、写回、CodeGraph 加速与
 semantic index，配置和输出均记录这些选择。
 
+另行命名的图实验可显式开启只读 ContextGraph MCP。图构建、embedding、
+检索和 release 服务仍由 ContextGraph 仓库负责；本仓库只提供调用外部
+`/health`、`/query`、`/evidence` 的 agent 工具。bench 固定来源 corpus、
+receipt 和传输地址，启动前及每次调用均检查 release 身份。工具输出是
+不可信的历史建议，不能替代当前源码和公开检查，不能写回图。
+
+这些工具通过 JiuwenSwarm 原生 MCP 注册，仅供可修改代码的 P0、repair
+及 PACT 角色自行调用。S0 只读调查及无工具结构化阶段不注册 MCP。
+本模式没有 Chrys 的自动历史提示注入；这一差异属于被测实现，成绩必须
+与关闭图的初版及 Chrys 的图实验分别报告。健康检查不能证明 agent 实际
+查询了图，实际查询次数由不含请求/响应正文的配对诊断 journal 记录。
+
 ## 安装与执行
 
 使用 Python 3.12.11 和仓库原 `uv.lock` 安装 JiuwenSwarm，再安装外部提供且

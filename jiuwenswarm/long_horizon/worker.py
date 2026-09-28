@@ -284,6 +284,8 @@ def _source_identity(source_commit: str, binary: Path) -> dict:
         "adapter_sha256": _sha256(Path(__file__)),
         "native_entry_sha256": _sha256(Path(__file__).with_name("native_entry.py")),
         "native_tool_free_sha256": _sha256(Path(__file__).with_name("native_tool_free.py")),
+        "contextgraph_reader_sha256": _sha256(Path(__file__).with_name("contextgraph.py")),
+        "contextgraph_mcp_sha256": _sha256(Path(__file__).with_name("contextgraph_mcp.py")),
         "native_code_spec_sha256": _sha256(root / "jiuwenswarm/agents/harness/code/spec.py"),
         "native_code_interface_sha256": _sha256(root / "jiuwenswarm/server/runtime/agent_adapter/interface_code.py"),
         "binary_path": str(binary), "binary_sha256": _sha256(binary),
@@ -682,6 +684,11 @@ class JiuwenWorker:
                 if not isinstance(config, dict) or not _credential_free(config):
                     raise ValueError("invalid config")
                 _section(_section(config, "modes"), "code")["tool_policy"] = identity["tool_policy"]
+                if read_only or identity["tool_policy"] == "none":
+                    # Frozen-source investigation and tool-free synthesis do
+                    # not mount external tools. Mutable native solver roles
+                    # retain the explicitly configured read-only graph MCP.
+                    _section(config, "mcp")["servers"] = []
                 if read_only:
                     config["permissions"] = _readonly_permissions(config)
                     _section(config, "hooks")["disable_all_hooks"] = True

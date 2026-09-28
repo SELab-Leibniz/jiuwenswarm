@@ -570,12 +570,14 @@ class SuiteController:
             implementation_commit = "unknown"
         implementation_commit = os.environ.get("JIUWENSWARM_SUITE_COMMIT", os.environ.get("JIUWENSWARM_AGENT_COMMIT", implementation_commit))
         (self.output / "requirement.md").write_bytes(requirement_bytes)
+        from .contextgraph import selection as memory_selection
+        selected_memory = memory_selection()
         self.summary = {
             "schema": SCHEMA, "status": "running", "suite_complete": False,
             "resolved": None, "route": "long_horizon", "router_enabled": False,
             "pact_required": self.config.require_pact, "baseline": None,
             "evaluation_kind": "recovered_attempt_not_fresh_pass_at_1" if self.config.recovery_directory else "fresh_attempt",
-            "memory": {"enabled": False, "mode": "disabled", "writeback": False},
+            "memory": selected_memory,
             "identities": {"agent_source_commit": implementation_commit, "base_agent_commit": BASE_AGENT_COMMIT,
                            "source_workflow_commit": SOURCE_WORKFLOW_COMMIT, "workspace_base_commit": self.base_commit,
                            "requirement_sha256": hashlib.sha256(requirement_bytes).hexdigest()},
@@ -584,7 +586,8 @@ class SuiteController:
             "protocol_differences": [
                 "Clarification proposals combine investigation and synthesis with read/grep throughout; bounded one format and one evidence follow-up do not reproduce Chrys's separate tool-disabled proposer synthesis.",
                 "Fixed long-horizon entrypoint; no route classifier.",
-                "Memory disabled; no cross-task graph recall or writeback.",
+                ("Read-only frozen ContextGraph through native MCP; no automatic prior injection or writeback."
+                 if selected_memory["enabled"] else "Memory disabled; no cross-task graph recall or writeback."),
                 "Stages use separate native Jiuwen sessions; bounded structured-output corrections resume the same recorded native session.",
                 "Public verifier investigation and synthesis are separate; synthesis uses a verified tool-free native profile.",
                 "Base phase budget plus reserve is one cumulative session deadline; correction calls do not reset it or replay the task.",
