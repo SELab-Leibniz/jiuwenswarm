@@ -48,8 +48,9 @@ class PipelineWorker:
     checkpoint/promotion, clarification validation and PACT run for real.
     """
 
-    def __init__(self):
+    def __init__(self, *, fail_repair=False):
         self.calls = []
+        self.fail_repair = fail_repair
 
     async def run(self, **kwargs):
         self.calls.append(kwargs)
@@ -57,7 +58,11 @@ class PipelineWorker:
         output.mkdir(parents=True, exist_ok=True)
         session = f"fixture-{len(self.calls)}"
         events = []
-        if kwargs.get("read_only") and not stage.startswith("pact_"):
+        if kwargs.get("tool_policy") == "none":
+            events.append({"schema_version": "0.1", "type": "event", "request_id": session,
+                           "session_id": session, "sequence": 0, "event_type": "chat.tool_policy",
+                           "payload": {"policy": "none", "registered_tools": [], "verified": True, "profile": "code.no-tools.v1"}})
+        if kwargs.get("read_only") and not stage.startswith("pact_") and kwargs.get("tool_policy") != "none":
             for index, (name, arguments, value) in enumerate([
                 ("grep", {"pattern": "value", "path": "."}, "src/api.py:1:def value():"),
                 ("read_file", {"file_path": "src/api.py"}, (workspace / "src/api.py").read_text()),
@@ -116,22 +121,42 @@ class PipelineWorker:
         elif stage in {"p0", "repair", "pact_worker"}:
             value = {"p0": 0, "repair": 3, "pact_worker": 2}[stage]
             (workspace / "src/api.py").write_text(f"def value():\n    return {value}\n")
+            if stage == "repair" and self.fail_repair:
+                subprocess.run(["git", "-C", str(workspace), "add", "src/api.py"], check=True)
+                subprocess.run(["git", "-C", str(workspace), "commit", "-qm", "failed repair candidate"], check=True)
             payload = f"Fixture {stage} candidate prepared."
         else:
             raise AssertionError(f"Unexpected model boundary: {stage}")
         text = json.dumps(payload) if isinstance(payload, dict) else payload
         result = SimpleNamespace(final_text=text, events=events, session_id=session, usage={}, status="completed", exit_code=0)
+        if stage == "repair" and self.fail_repair:
+            result.status, result.exit_code = "failed", 1
         terminal = {"schema_version": "0.1", "type": "result", "request_id": session, "sequence": len(events),
-                    "session_id": session, "status": "completed", "exit_code": 0, "error": None, "output": text, "usage": {}}
+                    "session_id": session, "status": result.status, "exit_code": result.exit_code,
+                    "error": {"code": "NATIVE_FAILED"} if result.exit_code else None, "output": text, "usage": {}}
         # These are explicit test doubles of the native-worker boundary, never
         # model measurements; the host evidence reader can consume the fixture.
         worker_path = Path(__file__).resolve().parents[2] / "jiuwenswarm/long_horizon/worker.py"
-        metadata = {"stage": stage, "actual_exit_code": 0, "timed_out": False, "signal": None,
-                    "terminal_result_received": True, "status": "completed", "session_id": session, "request_id": session,
+        metadata = {"stage": stage, "actual_exit_code": result.exit_code, "timed_out": False, "signal": None,
+                    "terminal_result_received": True, "status": result.status, "session_id": session, "request_id": session,
+                    "tool_policy": kwargs.get("tool_policy", "configured"),
                     "source": {"base_commit": BASE_AGENT_COMMIT, "adapter_sha256": hashlib.sha256(worker_path.read_bytes()).hexdigest()}}
+        if kwargs.get("tool_policy") == "none":
+            source_root = Path(__file__).resolve().parents[2]
+            metadata["tool_policy_proof_sequences"] = [0]
+            for key, relative in (
+                ("native_tool_free_sha256", "jiuwenswarm/long_horizon/native_tool_free.py"),
+                ("native_code_spec_sha256", "jiuwenswarm/agents/harness/code/spec.py"),
+                ("native_code_interface_sha256", "jiuwenswarm/server/runtime/agent_adapter/interface_code.py"),
+            ):
+                metadata["source"][key] = hashlib.sha256((source_root / relative).read_bytes()).hexdigest()
         for name, value in (("metadata.json", metadata), ("request.json", {"request_id": session}), ("terminal-result.json", terminal)):
             (output / name).write_text(json.dumps(value))
         (output / "events.jsonl").write_text("".join(json.dumps(value) + "\n" for value in [*events, terminal]))
+        if result.exit_code:
+            error = NativeFailure("failed")
+            error.result = result
+            raise error
         return result
 
 
@@ -219,15 +244,17 @@ class SuiteControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["memory"]["enabled"], False)
         self.assertTrue((self.config.output_dir / "recovery/current/history.bundle").is_file())
 
-    async def test_degraded_clarification_preserves_p0_without_fake_suite_success(self):
+    async def test_degraded_clarification_promotes_p0_then_requires_actual_campaign(self):
         self.clarification_status = "degraded"
         worker = FakeWorker()
         result = await SuiteController(self.config, worker, self.services()).run()
-        self.assertEqual(result["status"], "degraded")
-        self.assertFalse(result["suite_complete"])
+        self.assertEqual(result["status"], "completed")
+        self.assertTrue(result["suite_complete"])
         self.assertEqual(result["baseline"], "p0")
         self.assertEqual([call["stage"] for call in worker.calls], ["p0"])
-        self.assertNotIn("pact", result["stages"])
+        self.assertEqual(result["stages"]["clarification"]["status"], "degraded")
+        self.assertEqual(result["stages"]["repair"]["status"], "skipped")
+        self.assertEqual(result["stages"]["pact"]["status"], "completed")
         self.assertEqual((self.workspace / "source.py").read_text(), "p0\n")
 
     async def test_budget_exhaustion_keeps_partial_workspace_and_never_replays(self):
@@ -250,6 +277,18 @@ class SuiteControllerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result["resolved"])
         self.assertTrue((self.config.output_dir / "recovery/current/history.bundle").is_file())
 
+    async def test_invalid_native_protocol_stops_instead_of_promoting_baseline(self):
+        from jiuwenswarm.long_horizon.worker import WorkerProtocolError
+
+        error = WorkerProtocolError("Missing terminal result", code="MISSING_RESULT",
+                                    output_dir=self.config.output_dir / "workers/p0")
+        worker = FakeWorker("p0", error)
+        result = await SuiteController(self.config, worker, self.services()).run()
+        self.assertEqual(result["status"], "failed")
+        self.assertFalse(result["suite_complete"])
+        self.assertEqual([call["stage"] for call in worker.calls], ["p0"])
+        self.assertEqual(self.seen, [])
+
     async def test_campaign_without_execution_receipt_cannot_complete(self):
         self.emit_receipt = False
         result = await SuiteController(self.config, FakeWorker(), self.services()).run()
@@ -271,7 +310,7 @@ class SuiteControllerTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(100)
 
         worker.run = never_complete
-        config = replace(self.config, p0_timeout_seconds=0.01, cleanup_timeout_seconds=1)
+        config = replace(self.config, timeout_seconds=2, p0_timeout_seconds=0.01, cleanup_timeout_seconds=1)
         result = await SuiteController(config, worker, self.services()).run()
         self.assertEqual(result["status"], "budget_exhausted")
         self.assertEqual(calls, ["p0"])
@@ -281,6 +320,66 @@ class SuiteControllerTests(unittest.IsolatedAsyncioTestCase):
         (self.config.output_dir / "summary.json").write_text("previous")
         with self.assertRaisesRegex(ValueError, "fresh"):
             await SuiteController(self.config, FakeWorker(), self.services()).run()
+
+    async def test_p0_native_stage_timeout_preserves_partial_baseline_and_usage(self):
+        error = NativeFailure("timed_out", "TIMEOUT")
+        error.result.usage = {"input_tokens": 11, "output_tokens": 7}
+        result = await SuiteController(self.config, FakeWorker("p0", error), self.services()).run()
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["stages"]["p0"]["status"], "failed")
+        self.assertEqual(result["stages"]["p0"]["partial_reason"], "stage_time_budget")
+        self.assertEqual(result["worker_calls"][0]["usage"], error.result.usage)
+
+    async def test_optional_localization_timeout_does_not_skip_campaign(self):
+        services = self.services()
+        async def timeout(*_args, **_kwargs):
+            raise TimeoutError("optional stage deadline")
+        result = await SuiteController(self.config, FakeWorker(), replace(services, localize=timeout)).run()
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["stages"]["localization"]["reason"], "localization_time_budget")
+        self.assertEqual(result["stages"]["pact"]["status"], "completed")
+
+    async def test_localization_integrity_error_is_fatal_even_with_timeout_result(self):
+        from jiuwenswarm.long_horizon.clarification.budget import SideCallIntegrityError
+        from jiuwenswarm.long_horizon.worker import WorkerProtocolError
+
+        errors = [WorkerProtocolError("Invalid native receipt", code="MALFORMED_EVENT",
+                                     output_dir=self.config.output_dir / "localization"),
+                  SideCallIntegrityError("S0 changed")]
+        for index, error in enumerate(errors):
+            with self.subTest(error=type(error).__name__):
+                error.result = SimpleNamespace(status="timed_out")
+                async def fail(*_args, **_kwargs):
+                    raise error
+                worker = FakeWorker()
+                config = replace(self.config, output_dir=self.root / f"integrity-{index}")
+                result = await SuiteController(config, worker, replace(self.services(), localize=fail)).run()
+                self.assertEqual(result["status"], "failed")
+                self.assertFalse(result["suite_complete"])
+                self.assertEqual(result["stages"]["localization"]["status"], "failed")
+                self.assertNotIn("pact", result["stages"])
+                self.assertEqual([call["stage"] for call in worker.calls], ["p0"])
+
+    async def test_input_generation_failure_still_repairs_but_cannot_complete_suite(self):
+        services = self.services()
+        async def fail(*_args, **_kwargs):
+            raise ValueError("rejected goal JSON")
+        worker = FakeWorker()
+        result = await SuiteController(self.config, worker, replace(services, generate_pact_inputs=fail)).run()
+        self.assertEqual([call["stage"] for call in worker.calls], ["p0", "repair"])
+        self.assertEqual(result["stages"]["pact_inputs"]["status"], "failed")
+        self.assertEqual(result["status"], "degraded")
+        self.assertFalse(result["suite_complete"])
+
+    async def test_invalid_recovery_is_fatal_before_any_model_call(self):
+        package = self.root / "invalid-package"
+        package.mkdir()
+        worker = FakeWorker()
+        config = replace(self.config, recovery_directory=package, recovery_package_sha256="0" * 64)
+        result = await SuiteController(config, worker, self.services()).run()
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(worker.calls, [])
+        self.assertNotIn("p0", result["stages"])
 
     async def test_actual_components_connect_through_a_real_pact_campaign(self):
         (self.workspace / "src").mkdir()
@@ -301,11 +400,64 @@ class SuiteControllerTests(unittest.IsolatedAsyncioTestCase):
         stages = [call["stage"] for call in worker.calls]
         self.assertEqual(stages[0], "p0")
         self.assertIn("clarification-proposal-3", stages)
-        self.assertIn("public-verification-review-ac1", stages)
+        self.assertIn("public-verification-review-ac1-synthesis", stages)
         self.assertIn("pact_reviewer", stages)
-        self.assertLess(stages.index("repair"), stages.index("pact-goal-contract"))
+        self.assertLess(stages.index("pact-goal-contract"), stages.index("repair"))
         self.assertIsNone(result["resolved"])
+        self.assertEqual([item["stage"] for item in result["checkpoints"]],
+                         ["snapshot", "initial_implementation", "clarification", "pact_input", "repair", "delivery"])
+        self.assertFalse(result.get("checkpoint_failures"))
+        from jiuwenswarm.long_horizon.checkpoints import verify_stage_checkpoint
+        for item in result["checkpoints"]:
+            payload, _snapshot = verify_stage_checkpoint(self.config.output_dir / item["record"])
+            self.assertEqual(payload["metadata"]["identities"], result["identities"])
         self.integration_result = result
+
+    async def test_explicit_p0_recovery_skips_model_baseline_and_runs_remaining_real_components(self):
+        await self.test_actual_components_connect_through_a_real_pact_campaign()
+        from jiuwenswarm.long_horizon.recovery import export_p0_recovery
+        package = self.root / "p0-package"
+        manifest = export_p0_recovery(self.config.output_dir, package)
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        target = self.root / "recovery-target"
+        subprocess.run(["git", "clone", "--quiet", str(self.workspace), str(target)], check=True, capture_output=True)
+        base = self.integration_result["identities"]["workspace_base_commit"]
+        subprocess.run(["git", "-C", str(target), "checkout", "--quiet", "--detach", base], check=True, capture_output=True)
+        for key, value in (("user.name", "Recovery Test"), ("user.email", "recovery@example.invalid")):
+            subprocess.run(["git", "-C", str(target), "config", key, value], check=True)
+        config = replace(self.config, workspace=target, output_dir=self.root / "recovered-output",
+                         recovery_directory=package, recovery_package_sha256=digest)
+        worker = PipelineWorker()
+        result = await SuiteController(config, worker).run()
+        self.assertEqual(result["status"], "completed", result.get("incomplete_reason"))
+        self.assertNotIn("p0", [call["stage"] for call in worker.calls])
+        self.assertEqual(result["stages"]["p0"]["status"], "restored")
+        self.assertEqual(result["evaluation_kind"], "recovered_attempt_not_fresh_pass_at_1")
+        self.assertEqual(json.loads((config.output_dir / "recovery-origin.json").read_text()), json.loads(manifest.read_text()))
+        self.assertEqual(result["recovery_origin"]["package_sha256"], digest)
+        self.assertIsNone(result["resolved"])
+
+    async def test_failed_repair_commit_is_saved_and_p0_really_restored_before_pact(self):
+        (self.workspace / "src").mkdir()
+        (self.workspace / "tests").mkdir()
+        (self.workspace / "src/api.py").write_text("def value():\n    return 1\n")
+        (self.workspace / "tests/test_api.py").write_text("def test_value():\n    assert True\n")
+        (self.workspace / ".gitignore").write_text(".pact/\n.pact-io/\n__pycache__/\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "public API fixture")
+        self.prompt.write_text("Change the public value() API to return integer 2.")
+        result = await SuiteController(self.config, PipelineWorker(fail_repair=True)).run()
+        self.assertEqual(result["status"], "completed", result.get("incomplete_reason"))
+        self.assertEqual(result["baseline"], "p0")
+        self.assertEqual(result["stages"]["repair"]["status"], "failed")
+        self.assertTrue(result["stages"]["repair"]["baseline_restored"])
+        fallback = json.loads((self.config.output_dir / "repair-fallback.json").read_text())
+        self.assertTrue(fallback["head_restored"])
+        self.assertTrue(fallback["index_restored"])
+        p0_patch = (self.config.output_dir / "recovery/p0/candidate.patch").read_bytes()
+        self.assertEqual(hashlib.sha256(p0_patch).hexdigest(), fallback["patch_sha256"])
+        self.assertIn("return 3", (self.config.output_dir / "recovery/failed-repair/candidate.patch").read_text())
+        self.assertEqual((self.workspace / "src/api.py").read_text(), "def value():\n    return 2\n")
 
     def test_recovery_preserves_real_index_and_includes_new_files(self):
         (self.workspace / "new.py").write_text("new content\n")

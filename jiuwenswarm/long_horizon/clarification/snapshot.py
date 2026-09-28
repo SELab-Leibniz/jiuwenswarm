@@ -59,6 +59,9 @@ class SnapshotEntry:
     model_visible: bool
     metadata_reason: str = ""
     symlink_target_is_dir: bool = False
+    # The recovery digest above binds the original live link. Model views
+    # remap internal links, so their exact target needs a separate identity.
+    model_symlink_target: str | None = None
 
     @property
     def relative_path(self) -> str:
@@ -80,6 +83,9 @@ class SnapshotRoot:
     git_index_blob: str = ""
     tracked_paths: tuple[str, ...] = ()
     ignore_text: str = ""
+    # None identifies legacy recovery snapshots, which remain loadable and
+    # restorable but cannot attest to a complete model-view inventory.
+    model_view_directories: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,6 +271,36 @@ def _read_ignore_text(source_root: Path) -> str:
         return ""
 
 
+def _model_view_directories(view_root: Path) -> tuple[str, ...]:
+    """Record materialized directories without following links or ignore rules.
+
+    The frozen Git metadata keeps its existing separate policy. This only
+    scans directory names; it does not read or hash repository history.
+    """
+    directories = ["."]
+
+    def scan_error(error: OSError) -> None:
+        raise WorkspaceSnapshotError(f"incomplete model-view scan: {error}") from error
+
+    for current, dirs, _files in os.walk(view_root, followlinks=False, onerror=scan_error):
+        current_path = Path(current)
+        descend = []
+        for name in dirs:
+            path = current_path / name
+            relative = path.relative_to(view_root).as_posix()
+            info = path.lstat()
+            if stat.S_ISLNK(info.st_mode):
+                continue
+            if not stat.S_ISDIR(info.st_mode):
+                raise WorkspaceSnapshotError(f"model-view directory changed during capture: {relative}")
+            if relative == ".git":
+                continue
+            directories.append(relative)
+            descend.append(name)
+        dirs[:] = descend
+    return tuple(sorted(directories))
+
+
 def _freeze_git_history(source_root: Path, view_root: Path, root_artifact: Path) -> tuple[str, str, int]:
     inside = _git_output(source_root, "rev-parse", "--is-inside-work-tree")
     if inside.returncode or inside.stdout.strip() != "true":
@@ -409,6 +445,7 @@ class WorkspaceSnapshotter:
                         git_index_blob=index_blob,
                         tracked_paths=tracked_paths,
                         ignore_text=ignore_text,
+                        model_view_directories=_model_view_directories(view_root),
                     )
                 )
                 view_manifest = {
@@ -488,6 +525,10 @@ class WorkspaceSnapshotter:
                     git_index_blob=item.get("git_index_blob", ""),
                     tracked_paths=tuple(item.get("tracked_paths", ())),
                     ignore_text=item.get("ignore_text", ""),
+                    model_view_directories=(
+                        tuple(item["model_view_directories"])
+                        if item.get("model_view_directories") is not None else None
+                    ),
                 )
                 for item in payload.get("roots", [])
             )
@@ -711,6 +752,7 @@ class WorkspaceSnapshotter:
                         model_visible=visible,
                         metadata_reason=reason,
                         symlink_target_is_dir=target_is_dir,
+                        model_symlink_target=frozen_link if visible else None,
                     )
                 )
                 total_bytes += len(data)

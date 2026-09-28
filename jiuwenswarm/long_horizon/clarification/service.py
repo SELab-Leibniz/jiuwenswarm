@@ -197,13 +197,17 @@ class ClarificationService:
                         and selector_attempt == 1
                     ):
                         selector_errors = ["the first-pass selector rejected every candidate after review"]
+                        self._record_selector_pass(offset, selector_attempt, batch_ids, selector_errors, True)
                         continue
+                    self._record_selector_pass(offset, selector_attempt, batch_ids, selector_errors, True)
                     if not selector_errors:
                         break
                 except (SideCallBudgetExhausted, SideCallInterrupted, SideCallIntegrityError):
                     raise
                 except Exception as exc:
+                    usage.extend(dict(item) for item in getattr(exc, "usage_details", ()))
                     selector_errors = [f"{type(exc).__name__}: {exc}"[:600]]
+                    self._record_selector_pass(offset, selector_attempt, batch_ids, selector_errors, False)
             if decision is not None and selector_errors and all(e.startswith(_NOT_REVIEWED) for e in selector_errors):
                 # Two passes and the selector still skipped some ids. Its verdicts on
                 # the rest are sound; an unreviewed candidate is simply not selected.
@@ -275,6 +279,13 @@ class ClarificationService:
             usage_details=tuple(usage),
             warnings=tuple(warnings),
         )
+
+    def _record_selector_pass(self, offset: int, attempt: int, candidate_ids: tuple[str, ...],
+                              errors: list[str], completed: bool) -> None:
+        record = getattr(self._model, "record_selector_pass", None)
+        if callable(record):
+            record(batch_offset=offset, attempt=attempt, candidate_ids=list(candidate_ids),
+                   errors=errors, completed=completed)
 
     async def _clarify_legacy_v1(
         self,
@@ -377,6 +388,7 @@ class ClarificationService:
                 initial_plan = _sanitize_pact_target_ac_ids(goal_contract, initial_plan)
                 validate_pact_runtime_input(goal_contract, initial_plan)
             except (ValidationError, ValueError) as exc:
+                usage.extend(dict(item) for item in getattr(exc, "usage_details", ()))
                 validation_error = str(exc)
                 if plan_attempt == 1:
                     continue

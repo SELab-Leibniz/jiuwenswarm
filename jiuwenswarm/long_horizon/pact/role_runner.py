@@ -7,7 +7,9 @@ The model loop, tools and session lifecycle belong to the Jiuwen worker.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import math
 import threading
 import time
 from pathlib import Path
@@ -16,6 +18,7 @@ from typing import Any, Literal
 from .budget import RoleBudgetExhausted, preserve_role_budget
 from .review_context import cleanup_review_context, prepare_review_context
 from .protocol import (
+    _JSON_FOLLOWUP_PROMPT, _JSON_FOLLOWUP_TIMEOUT_SECONDS,
     _ROLE_PROTOCOL_REMINDERS, _campaign_context,
     _is_json_object, _preserve_repair_semantics, _protocol_payload,
     _replan_instead_of_retry, _restore_existing_missions,
@@ -124,6 +127,44 @@ class JiuwenRoleAdapter:
             final_text = _replan_instead_of_retry(prompt, final_text)
         return final_text
 
+    def _record_call(self, records, directory, result, *, requested_session_id, correction_kind):
+        """Record observed per-call output and usage; never infer provider calls."""
+        raw = getattr(result, 'final_text', '')
+        if isinstance(raw, str):
+            (directory / 'native-final-raw.txt').write_text(raw, encoding='utf-8')
+        events = getattr(result, 'events', [])
+        request_ids = sorted({event['request_id'] for event in events
+                              if isinstance(event, dict) and isinstance(event.get('request_id'), str)})
+        event_file = directory / 'events.jsonl'
+        records.append({
+            'attempt': len(records) + 1, 'correction_kind': correction_kind,
+            'session_id': getattr(result, 'session_id', None),
+            'requested_session_id': requested_session_id,
+            'request_ids': request_ids,
+            'output_dir': str(directory.relative_to(self.output_dir)),
+            'status': getattr(result, 'status', 'unavailable'),
+            'usage': getattr(result, 'usage', {}) or {},
+            'native_final_sha256': hashlib.sha256(raw.encode()).hexdigest() if isinstance(raw, str) else None,
+            'native_events_sha256': hashlib.sha256(event_file.read_bytes()).hexdigest() if event_file.is_file() else None,
+        })
+
+    def _write_call_chain(self, directory, records, *, correction_attempted, status):
+        cumulative = {}
+        for record in records:
+            usage = record['usage']
+            if not isinstance(usage, dict):
+                continue
+            for name, value in usage.items():
+                if type(value) is int or (type(value) is float and math.isfinite(value)):
+                    cumulative[name] = cumulative.get(name, 0) + value
+        (directory / 'role-call-chain.json').write_text(json.dumps({
+            'schema': 'jiuwenswarm/pact-role-call-chain/v1',
+            'semantic_role': self.semantic_role, 'campaign_id': self.campaign_id,
+            'correction_attempted': correction_attempted, 'status': status,
+            'calls': records, 'cumulative_usage': cumulative,
+            'usage_scope': 'sum_of_observed_current_call_worker_results',
+        }, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+
     async def _run_turn(self, request, sequence):
         from pact_core.review_decision import parse_review_decision
         from pact_core.schemas import ReviewDecisionCapture, TurnResult
@@ -171,6 +212,11 @@ class JiuwenRoleAdapter:
         status = 'spawn_failed'
         budget_detail = None
         review_context = None
+        call_records = []
+        active_directory = directory
+        requested_session_id = None
+        correction_attempted = False
+        correction_kind = None
         try:
             if self.semantic_role == 'reviewer':
                 review_context = await asyncio.to_thread(
@@ -180,26 +226,60 @@ class JiuwenRoleAdapter:
                 if review_context is not None:
                     prompt += review_context.prompt
             result = await self._call_worker(request, prompt, directory)
+            self._record_call(call_records, directory, result,
+                              requested_session_id=None, correction_kind=None)
             session_id = result.session_id
             status = result.status
             final_text = result.final_text
-            (directory / 'native-final-raw.txt').write_text(final_text, encoding='utf-8')
             if status == 'completed' and not final_text.strip():
                 status = 'output_missing'
             if status in ('completed', 'output_missing') and self.semantic_role in ('planner', 'manager'):
                 final_text = self._normalize(prompt, final_text)
                 (directory / 'protocol-payload.txt').write_text(final_text, encoding='utf-8')
                 if not _is_json_object(final_text):
-                    # Native worker calls are separate subprocess states. Do
-                    # not replay a fresh session and call it continuation.
+                    # The original PACT adapter permits exactly one transport
+                    # correction in the same role session, never a fresh replay.
+                    remaining = request.timeout_seconds - (time.monotonic() - started)
+                    if remaining <= 0:
+                        status = 'budget_exhausted'
+                        budget_detail = 'Role deadline exhausted before JSON format correction'
+                    elif session_id:
+                        correction_attempted = True
+                        correction_kind = 'format_schema'
+                        requested_session_id = session_id
+                        active_directory = directory.with_name(directory.name + '-format-repair')
+                        active_directory.mkdir(parents=True, exist_ok=False)
+                        result = await self._call_worker(
+                            request, _JSON_FOLLOWUP_PROMPT, active_directory,
+                            session_id=requested_session_id,
+                            timeout=min(remaining, _JSON_FOLLOWUP_TIMEOUT_SECONDS),
+                        )
+                        self._record_call(call_records, active_directory, result,
+                                          requested_session_id=requested_session_id,
+                                          correction_kind=correction_kind)
+                        if result.session_id != requested_session_id:
+                            raise ValueError('Native format correction changed session identity')
+                        session_id = result.session_id
+                        status = result.status
+                        final_text = result.final_text
+                        if status == 'completed':
+                            final_text = self._normalize(prompt, final_text)
+                            (active_directory / 'protocol-payload.txt').write_text(final_text, encoding='utf-8')
+                    if status in ('completed', 'output_missing') and not _is_json_object(final_text):
+                        status = 'output_missing'
+                        diagnostic = 'Role final response did not contain one unambiguous complete JSON object'
                     (directory / 'protocol-output.json').write_text(json.dumps({
                         'schema': 'jiuwenswarm/pact-role-protocol-output/v1',
-                        'status': 'missing_json', 'semantic_role': self.semantic_role,
-                        'continuation': 'unsupported', 'final_text': final_text,
+                        'status': status, 'semantic_role': self.semantic_role,
+                        'correction_attempted': correction_attempted,
+                        'continuation': 'same_native_session' if correction_attempted else 'not_started',
+                        'session_id': session_id,
+                        'paths_relative_to': str(directory.parent.relative_to(self.output_dir)),
+                        'initial_payload_path': str((directory / 'protocol-payload.txt').relative_to(directory.parent)),
+                        'final_payload_path': str((active_directory / 'protocol-payload.txt').relative_to(directory.parent)),
                     }, indent=2) + '\n')
-                    status = 'output_missing'
-                    diagnostic = 'Role final response did not contain one unambiguous complete JSON object'
         except asyncio.CancelledError:
+            status = 'cancelled'
             recovery = await asyncio.to_thread(
                 preserve_role_budget, campaign_id=self.campaign_id, role=self.semantic_role,
                 workdir=request.workdir, source_workspace=self.workspace, session_id=session_id,
@@ -209,21 +289,24 @@ class JiuwenRoleAdapter:
             )
             raise RoleTurnCancelled(str(recovery)) from None
         except RoleTurnCancelled:
+            status = 'cancelled'
             raise
         except Exception as error:
             result = getattr(error, 'result', None)
-            session_id = getattr(result, 'session_id', None)
+            session_id = getattr(result, 'session_id', None) or session_id
             status = getattr(result, 'status', 'spawn_failed')
             diagnostic = f'{type(error).__name__}: {error}'[-4000:]
-            native_final = getattr(result, 'final_text', None)
-            if isinstance(native_final, str):
-                (directory / 'native-final-raw.txt').write_text(native_final, encoding='utf-8')
+            if result is not None:
+                self._record_call(call_records, active_directory, result,
+                                  requested_session_id=requested_session_id, correction_kind=correction_kind)
             # Typed worker exceptions have already saved process/session data.
-            if 'BudgetExhausted' in type(error).__name__:
+            if ('BudgetExhausted' in type(error).__name__ or type(error).__name__ == 'BudgetStop'
+                    or isinstance(error, TimeoutError) or 'Timeout' in type(error).__name__
+                    or getattr(error, 'code', '') in {'BUDGET_EXHAUSTED', 'OUTPUT_BUDGET_EXHAUSTED', 'TIMEOUT'}):
                 budget_detail = diagnostic
-            elif 'Timeout' in type(error).__name__:
-                budget_detail = diagnostic
+                status = 'budget_exhausted'
         finally:
+            self._write_call_chain(directory, call_records, correction_attempted=correction_attempted, status=status)
             await asyncio.to_thread(cleanup_review_context, review_context)
         if status in ('budget_exhausted', 'timed_out', 'timeout') or budget_detail:
             suspension = await asyncio.to_thread(

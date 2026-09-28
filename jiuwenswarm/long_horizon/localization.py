@@ -182,9 +182,11 @@ def _relative(value: Any, root: Path) -> str | None:
 
 
 def _snapshot_files(snapshot: Any, root: Path) -> dict[str, str]:
+    from .clarification.budget import SideCallIntegrityError
+
     roots = [item for item in snapshot.roots if Path(item.view_root).resolve() == root]
     if len(roots) != 1:
-        raise ValueError("localization requires one unambiguous S0 root")
+        raise SideCallIntegrityError("localization requires one unambiguous S0 root")
     expected = {
         entry.relative_path: entry.content_hash
         for entry in roots[0].entries
@@ -194,9 +196,13 @@ def _snapshot_files(snapshot: Any, root: Path) -> dict[str, str]:
         raise ValueError("S0 contains no model-visible regular files")
     for relative, digest in expected.items():
         if _relative(relative, root) != relative:
-            raise ValueError("S0 contains an unsafe or missing file")
-        if hashlib.sha256((root / relative).read_bytes()).hexdigest() != digest:
-            raise ValueError("S0 content no longer matches its captured manifest")
+            raise SideCallIntegrityError("S0 contains an unsafe or missing file")
+        try:
+            actual_digest = hashlib.sha256((root / relative).read_bytes()).hexdigest()
+        except OSError as exc:
+            raise SideCallIntegrityError("S0 file could not be verified") from exc
+        if actual_digest != digest:
+            raise SideCallIntegrityError("S0 content no longer matches its captured manifest")
     return expected
 
 
@@ -348,6 +354,7 @@ async def localize(
 ) -> dict[str, Any]:
     """Locate against S0 only; retain honest degradation and budget evidence."""
     from .clarification.event_evidence import snapshot_workspace
+    from .worker import WorkerProtocolError
 
     if not isinstance(requirement, str) or not requirement.strip():
         raise ValueError("localization requires a nonempty requirement")
@@ -428,6 +435,12 @@ async def localize(
             result["warnings"].append("No locations met S0 search/read evidence requirements.")
     except Exception as exc:
         saved_result = getattr(exc, "result", None) or worker_result
+        if isinstance(exc, WorkerProtocolError) or getattr(exc, "code", "") in {"SNAPSHOT_CHANGED", "RUNTIME_IDENTITY_INVALID"}:
+            result.update(status="integrity_failed", failure_code=getattr(exc, "code", ""),
+                          worker_status=_status(saved_result), session_id=_get(saved_result, "session_id"),
+                          usage=_get(saved_result, "usage", {}))
+            _write(output_dir / "localization.json", result)
+            raise
         if isinstance(exc, LocalizationBudgetExhausted) or _status(saved_result) in {"budget_exhausted", "timed_out"} or "BudgetExhausted" in type(exc).__name__ or isinstance(exc, TimeoutError):
             result.update(status="budget_exhausted", worker_status=_status(saved_result), session_id=_get(saved_result, "session_id"), usage=_get(saved_result, "usage", {}))
             _write(output_dir / "localization.json", result)

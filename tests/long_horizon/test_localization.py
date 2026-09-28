@@ -268,17 +268,44 @@ class LocalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("secret P0 patch", worker.calls[0]["prompt"])
 
     async def test_mutation_before_worker_blocks_and_mutation_after_invalidates(self):
+        from jiuwenswarm.long_horizon.clarification.budget import SideCallIntegrityError
+
         original = (self.root / "src/logic.py").read_text()
         (self.root / "src/logic.py").write_text("changed")
         worker = FakeWorker()
-        result = await self._run(worker)
+        with self.assertRaises(SideCallIntegrityError):
+            await self._run(worker)
         self.assertEqual([], worker.calls)
-        self.assertEqual("degraded", result["status"])
+        result = json.loads((self.base / "out/localization.json").read_text())
+        self.assertEqual("integrity_failed", result["status"])
         (self.root / "src/logic.py").write_text(original)
         worker = FakeWorker(mutate=lambda args: (args["workspace"] / "src/logic.py").write_text("changed again"))
-        result = await self._run(worker)
-        self.assertEqual("degraded", result["status"])
+        with self.assertRaises(SideCallIntegrityError):
+            await self._run(worker)
+        result = json.loads((self.base / "out/localization.json").read_text())
+        self.assertEqual("integrity_failed", result["status"])
         self.assertEqual([], result["locations"])
+
+    async def test_native_protocol_integrity_failure_is_saved_and_rethrown(self):
+        from jiuwenswarm.long_horizon.worker import WorkerProtocolError
+
+        for status in ("completed", "timed_out"):
+            error = WorkerProtocolError("untrusted native receipt", code="MISSING_TOOL_POLICY_PROOF",
+                output_dir=self.base / "out/worker",
+                result=SimpleNamespace(status=status, session_id="native-receipt", usage={"output_tokens": 4}))
+
+            class Worker:
+                async def run(self, **kwargs):
+                    raise error
+
+            with self.assertRaises(WorkerProtocolError) as caught:
+                await self._run(Worker())
+            self.assertIs(error, caught.exception)
+            result = json.loads((self.base / "out/localization.json").read_text())
+            self.assertEqual("integrity_failed", result["status"])
+            self.assertEqual("MISSING_TOOL_POLICY_PROOF", result["failure_code"])
+            self.assertEqual("native-receipt", result["session_id"])
+            self.assertEqual([], result["locations"])
 
     async def test_budget_stop_preserves_session_and_is_never_degraded(self):
         with self.assertRaises(LocalizationBudgetExhausted):

@@ -1,6 +1,7 @@
 # Copyright (c) 2026 Chrys. All rights reserved.
 
-# Ported from Chrys 6fcfb3321892735631b49f33236b1e2a988ded2d: src/chrys/service/requirement_clarification/verification.py; solver execution is JiuwenSwarm.
+# Ported from Chrys 6fcfb332, with generated-command validation from 0561cf0f:
+# src/chrys/service/requirement_clarification/verification.py; execution is JiuwenSwarm.
 """Public checks synthesized from clarified requirements, separate from PACT goals."""
 
 from __future__ import annotations
@@ -57,6 +58,18 @@ class PublicVerification(BaseModel):
                 "public verification must reference exactly the Goal Contract's acceptance criteria: "
                 f"missing={sorted(acceptance_ids - covered)}, foreign={sorted(covered - acceptance_ids)}"
             )
+
+    def validate_generated_commands(self) -> None:
+        """Reject observed non-verifiers; actual execution remains mandatory."""
+        for check in self.checks:
+            if check.command.strip() in {"true", ":", "exit 0", "PLACEHOLDER", "TODO", "TBD"}:
+                raise ValueError(f"check {check.id} contains no executable behavioral assertion")
+            if re.search(r"\|\|\s*(?:true|:)\s*;?\s*$", check.command, re.MULTILINE):
+                raise ValueError(f"check {check.id} suppresses failure with an unconditional success fallback")
+            if re.match(r"(?i)^placeholder\b|^to be replaced\b", check.rationale):
+                raise ValueError(f"check {check.id} is an unfinished placeholder")
+            if "DSML" in check.command:
+                raise ValueError(f"check {check.id} contains tool-call markup instead of an executable command")
 
 
 def json_digest(value: object) -> str:

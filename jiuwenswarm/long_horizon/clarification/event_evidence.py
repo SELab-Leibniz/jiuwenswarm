@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .snapshot import WorkspaceSnapshot
+from .compat import validate_link_free_directory
 from .budget import SideCallIntegrityError
 from .types import ClarificationProposal, InvestigationToolCall, VerifiedEvidenceReference
 from .validation import _anchor_line_range, _proposal_current_repo_anchors
@@ -28,8 +29,14 @@ def validate_model_view(snapshot: WorkspaceSnapshot) -> None:
     """Validate the captured object, not a model-editable manifest in its tree."""
     for root_info in snapshot.roots:
         root = Path(root_info.view_root)
-        if root.is_symlink() or not root.is_dir():
-            raise SideCallIntegrityError("frozen snapshot root changed")
+        try:
+            validate_link_free_directory(root)
+            if root.is_symlink() or not root.is_dir():
+                raise ValueError("frozen snapshot root changed")
+        except (OSError, ValueError) as exc:
+            raise SideCallIntegrityError("frozen snapshot root changed") from exc
+        if root_info.model_view_directories is None:
+            raise SideCallIntegrityError("frozen snapshot lacks a captured model-view directory inventory")
         expected = {entry.relative_path: entry for entry in root_info.entries if entry.model_visible}
         for relative, entry in expected.items():
             path = root / relative
@@ -42,18 +49,41 @@ def validate_model_view(snapshot: WorkspaceSnapshot) -> None:
                         raise ValueError("frozen regular file became a symlink")
                     if hashlib.sha256(path.read_bytes()).hexdigest() != entry.content_hash:
                         raise ValueError("frozen source bytes changed")
-                elif not stat.S_ISLNK(info.st_mode):
-                    raise ValueError("frozen symlink type changed")
-            except (OSError, ValueError) as exc:
+                elif (not stat.S_ISLNK(info.st_mode) or entry.model_symlink_target is None
+                      or os.readlink(path) != entry.model_symlink_target):
+                    raise ValueError("frozen symlink target or type changed")
+            except (OSError, ValueError, RuntimeError) as exc:
                 raise SideCallIntegrityError(f"frozen snapshot differs from captured evidence: {relative}") from exc
-        for directory, dirs, files in os.walk(root, followlinks=False):
-            dirs[:] = [name for name in dirs if name != ".git" and not (Path(directory) / name).is_symlink()]
-            for name in files:
-                relative = (Path(directory) / name).relative_to(root).as_posix()
-                if relative == ".jiuwenswarm_snapshot_manifest.json":
-                    continue
-                if relative not in expected:
-                    raise SideCallIntegrityError(f"unexpected source appeared in frozen snapshot: {relative}")
+
+        def scan_error(error: OSError) -> None:
+            raise SideCallIntegrityError(f"incomplete frozen snapshot scan: {error}") from error
+
+        directories = {"."}
+        try:
+            for directory, dirs, files in os.walk(root, followlinks=False, onerror=scan_error):
+                current = Path(directory)
+                descend = []
+                # Directory symlinks must be checked as entries before pruning
+                # traversal. Neither ignore rules nor source exclusions apply
+                # to the already-materialized model view.
+                for name in [*dirs, *files]:
+                    path = current / name
+                    relative = path.relative_to(root).as_posix()
+                    info = path.lstat()
+                    if stat.S_ISDIR(info.st_mode):
+                        if relative == ".git" and root_info.history_bundle:
+                            continue
+                        directories.add(relative)
+                        descend.append(name)
+                    elif relative == ".jiuwenswarm_snapshot_manifest.json" and stat.S_ISREG(info.st_mode):
+                        continue
+                    elif relative not in expected:
+                        raise SideCallIntegrityError(f"unexpected source appeared in frozen snapshot: {relative}")
+                dirs[:] = descend
+        except OSError as exc:
+            raise SideCallIntegrityError("frozen snapshot changed during inventory scan") from exc
+        if directories != set(root_info.model_view_directories):
+            raise SideCallIntegrityError("frozen snapshot directory inventory changed")
 
 
 def _text(value: object) -> str:
@@ -96,7 +126,7 @@ def _relative_path(value: str, root: Path) -> tuple[str, Path] | None:
         relative = resolved.relative_to(root)
     except (OSError, ValueError):
         return None
-    if relative.parts and relative.parts[0] in {".git", ".jiuwenswarm_snapshot_manifest.json"}:
+    if ".git" in relative.parts or (relative.parts and relative.parts[0] == ".jiuwenswarm_snapshot_manifest.json"):
         return None
     return relative.as_posix(), resolved
 
@@ -146,22 +176,24 @@ def investigation_tool_calls(events: list[dict], snapshot: WorkspaceSnapshot) ->
 
     normalized = normalize_tool_events(events)
     root = snapshot_workspace(snapshot)
-    pending: dict[str, dict] = {}
-    duplicate: set[str] = set()
+    pending: dict[tuple[str, str, str], dict] = {}
+    duplicate: set[tuple[str, str, str]] = set()
     calls: list[InvestigationToolCall] = []
     aliases = {"read": "read_file", "read_file": "read_file", "grep": "grep", "glob": "glob", "view_image": "view_image"}
     for event in normalized:
         call_id = str(event.get("call_id") or "")
         if not call_id:
             continue
+        provenance = event.get("provenance") or {}
+        key = (str(provenance.get("session_id") or ""), str(provenance.get("request_id") or ""), call_id)
         if event.get("type") == "tool_call":
-            if call_id in pending:
-                duplicate.add(call_id)
-            pending[call_id] = event
+            if key in pending:
+                duplicate.add(key)
+            pending[key] = event
             continue
-        if event.get("type") != "tool_result" or call_id not in pending or call_id in duplicate:
+        if event.get("type") != "tool_result" or key not in pending or key in duplicate:
             continue
-        call = pending.pop(call_id)
+        call = pending.pop(key)
         name = aliases.get(str(call.get("name", "")).lower())
         if name is None:
             continue
@@ -199,12 +231,41 @@ def investigation_tool_calls(events: list[dict], snapshot: WorkspaceSnapshot) ->
         else:
             # Images cannot stand in for the required text read.
             success = False
+        evidence_call_id = f"{key[1]}:{call_id}" if key[1] else call_id
         calls.append(InvestigationToolCall(
-            call_id=call_id[:300], name=name, query=query[:1200], path=path[:1200],
+            call_id=evidence_call_id[:300], name=name, query=query[:1200], path=path[:1200],
             line_range=line_range, successful=success, result_chars=len(result),
             result_sha256=hashlib.sha256(result.encode()).hexdigest(),
         ))
     return calls[-100:]
+
+
+def discovered_source_paths(events: list[dict], snapshot: WorkspaceSnapshot) -> list[str]:
+    """Hints from paired successful searches, never model-claimed file paths."""
+    from ..worker import normalize_tool_events
+
+    accepted = {call.call_id for call in investigation_tool_calls(events, snapshot)
+                if call.successful and call.name == "grep"}
+    root = snapshot_workspace(snapshot)
+    candidates: list[str] = []
+    for event in normalize_tool_events(events):
+        if event.get("type") != "tool_result" or event.get("name") != "grep":
+            continue
+        request_id = (event.get("provenance") or {}).get("request_id")
+        call_id = f"{request_id}:{event['call_id']}" if request_id else event["call_id"]
+        if call_id[:300] not in accepted:
+            continue
+        result = _read_text(event.get("result")) + "\n" + _read_text(event.get("rendered_result"))
+        for line in result.splitlines():
+            candidate = line.strip().removeprefix("File: ").split(":", 1)[0].strip()
+            if not candidate or len(candidate) >= 4096 or any(char in candidate for char in "{}[]\t"):
+                continue
+            target = _relative_path(candidate, root)
+            if target is not None and target[1].is_file() and target[1].suffix and target[0] not in candidates:
+                candidates.append(target[0])
+                if len(candidates) >= 250:
+                    return candidates
+    return candidates
 
 
 def verified_evidence(proposal: ClarificationProposal, calls: list[InvestigationToolCall]) -> tuple[list[VerifiedEvidenceReference], list[str]]:

@@ -39,17 +39,33 @@ async def run_clarification(worker: Any, snapshot: WorkspaceSnapshot, requiremen
 
 async def generate_pact_inputs(worker: Any, snapshot: WorkspaceSnapshot, requirement: str,
                                result: ClarificationResult, output_dir: Path,
-                               localization_hints: str = "", timeout_seconds: float = 7200.0) -> PactRuntimeInput:
+                               localization_hints: str = "", timeout_seconds: float = 7200.0,
+                               runtime_evidence: str = "", checkpoint_identity: dict | None = None,
+                               checkpoint_root: Path | None = None) -> PactRuntimeInput:
     model = JiuwenClarificationModel(worker=worker, snapshot=snapshot,
-        output_dir=Path(output_dir) / "native-calls", timeout_seconds=timeout_seconds)
-    pact_input, _usage = await ClarificationService(model).generate_pact_input(
-        result=result, revision=RequirementRevision(number=1, messages=(requirement,)),
-        background="", snapshot=snapshot, localization_hints=localization_hints,
-        generate_public_verification=True,
-    )
-    ensure_owner_only_directory(Path(output_dir))
-    atomic_write_owner_only_text(Path(output_dir) / "generation-usage.json",
-        json.dumps({"schema": "jiuwenswarm/pact-input-usage/v1", "calls": _usage}, sort_keys=True, indent=2) + "\n")
+        output_dir=Path(output_dir) / "native-calls", timeout_seconds=timeout_seconds,
+        runtime_evidence=runtime_evidence, checkpoint_identity=checkpoint_identity, checkpoint_root=checkpoint_root)
+    failure: BaseException | None = None
+    try:
+        pact_input, _usage = await ClarificationService(model).generate_pact_input(
+            result=result, revision=RequirementRevision(number=1, messages=(requirement,)),
+            background="", snapshot=snapshot, localization_hints=localization_hints,
+            generate_public_verification=True,
+        )
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        # Completed and rejected calls both consume budget, including a terminal
+        # failure after earlier criteria were already generated and reviewed.
+        def save_usage() -> None:
+            ensure_owner_only_directory(Path(output_dir))
+            atomic_write_owner_only_text(Path(output_dir) / "generation-usage.json",
+                json.dumps({"schema": "jiuwenswarm/pact-input-usage/v1", "calls": model.usage_details}, sort_keys=True, indent=2) + "\n")
+        if failure is None:
+            save_usage()
+        else:
+            model._preserve_failure(failure, save_usage)
     return pact_input
 
 

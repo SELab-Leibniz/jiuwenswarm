@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 from pathlib import Path
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from unittest.mock import patch
 
@@ -90,6 +92,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(config["permissions"]["tools"][name], "deny")
         self.assertEqual(config["permissions"]["rules"], [])
         self.assertEqual(config["models"]["default"]["api_key"], "${TEST_MODEL_API_KEY}")
+        self.assertEqual(config["modes"]["code"]["tool_policy"], "configured")
         metadata = self.metadata()
         self.assertEqual(metadata["source"]["base_commit"], BASE_COMMIT)
         self.assertIn("checkout_commit", metadata["source"])
@@ -149,7 +152,316 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_fake_session_resume(self):
         with self.assertRaises(WorkerConfigurationError) as context:
             await self.run_worker(self.worker("raise AssertionError('must not run')"), session_id="old")
-        self.assertEqual(context.exception.code, "CONTINUATION_UNSUPPORTED")
+        self.assertEqual(context.exception.code, "UNKNOWN_SESSION")
+
+    async def continue_worker(self, worker, previous, **kwargs):
+        arguments = dict(stage="test", prompt="correct the format", workspace=self.workspace,
+                         output_dir=self.root / "correction", session_id=previous.session_id)
+        arguments.update(kwargs)
+        return await worker.run(**arguments)
+
+    async def test_continuation_reuses_native_history_with_immutable_call_receipts(self):
+        worker = self.worker("""
+        state = pathlib.Path(os.environ['JIUWENSWARM_DATA_DIR'])
+        history = state / 'history.json'
+        config = state / 'config/config.yaml'
+        if request.get('session_id'):
+            assert request['session_id'] == 'real-native-session'
+            assert json.loads(history.read_text()) == ['first native turn']
+            assert '# native turn 1' in config.read_text()
+            assert 'correct the format' in request['input']
+            history.write_text(json.dumps(['first native turn', 'native correction']))
+            config.write_text(config.read_text() + '\\n# native turn 2\\n')
+            emit(event(payload={'content':'second', 'final_mode':'patch_segment'}))
+            emit(result(sequence=1, output='second'))
+        else:
+            history.write_text(json.dumps(['first native turn']))
+            config.write_text(config.read_text() + '\\n# native turn 1\\n')
+            emit(event(payload={'content':'first', 'final_mode':'patch_segment'}))
+            emit(result(sequence=1, output='first'))
+        """)
+        schema = {"type": "object", "description": "unicode 中文"}
+        first = await self.run_worker(worker, read_only=True, schema=schema)
+        first_metadata = self.metadata()
+        original = {p.name: p.read_bytes() for p in (self.root / "stage").iterdir() if p.is_file()}
+        second = await self.continue_worker(worker, first, read_only=True, schema=schema, timeout_seconds=600)
+        metadata = json.loads((self.root / "correction/metadata.json").read_text())
+        request = json.loads((self.root / "correction/request.json").read_text())
+        self.assertEqual(request["session_id"], first.session_id)
+        self.assertEqual(second.session_id, first.session_id)
+        self.assertNotEqual(metadata["request_id"], first_metadata["request_id"])
+        self.assertEqual(metadata["state_dir"], first_metadata["state_dir"])
+        self.assertFalse((self.root / "correction/state").exists())
+        self.assertEqual(second.final_text, "second")
+        self.assertEqual(len(second.events), 1)
+        self.assertEqual(second.usage, first.usage)  # per call, never accumulated twice
+        self.assertEqual(metadata["session_deadline_monotonic"], first_metadata["session_deadline_monotonic"])
+        self.assertEqual(metadata["session_budget_seconds"], first_metadata["requested_timeout_seconds"])
+        self.assertLessEqual(metadata["timeout_seconds"], metadata["session_deadline_monotonic"] - metadata["timeout_admitted_monotonic"])
+        self.assertEqual(metadata["requested_timeout_seconds"], 600)
+        self.assertEqual(first_metadata["session_lineage"]["previous_artifact_sha256"], {})
+        lineage = metadata["session_lineage"]
+        self.assertEqual(lineage["continuation_index"], 1)
+        self.assertEqual(lineage["origin_output_dir"], str((self.root / "stage").resolve()))
+        self.assertEqual(lineage["previous_request_id"], first_metadata["request_id"])
+        self.assertEqual(lineage["previous_receipt_sha256"], hashlib.sha256(original["metadata.json"]).hexdigest())
+        self.assertEqual(set(lineage["previous_artifact_sha256"]), {
+            "metadata.json", "request.json", "events.jsonl", "terminal-result.json", "final-response.json",
+            "usage.json", "native-config.before.yaml", "native-config.after.yaml"})
+        for name, digest in lineage["previous_artifact_sha256"].items():
+            self.assertEqual(digest, hashlib.sha256(original[name]).hexdigest())
+        for name, content in original.items():
+            self.assertEqual((self.root / "stage" / name).read_bytes(), content)
+        self.assertEqual(metadata["requested_config_sha256"], first_metadata["archived_config_sha256"])
+        self.assertNotEqual(metadata["archived_config_sha256"], metadata["requested_config_sha256"])
+        self.assertEqual(metadata["continuation_identity_sha256"], first_metadata["continuation_identity_sha256"])
+
+    async def test_continuation_rejects_identity_and_environment_changes(self):
+        worker = self.worker("emit(result())")
+        with patch.dict(os.environ, {"TEST_MODEL_API_KEY": "original-provider-credential"}):
+            first = await self.run_worker(worker)
+            other_workspace = self.root / "other-workspace"
+            other_workspace.mkdir()
+            for changes in ({"stage": "different"}, {"workspace": other_workspace},
+                            {"read_only": True}, {"schema": {"type": "object"}}, {"tool_policy": "none"}):
+                with self.subTest(changes=changes):
+                    with self.assertRaises(WorkerConfigurationError) as caught:
+                        await self.continue_worker(worker, first, **changes)
+                    self.assertEqual(caught.exception.code, "CONTINUATION_IDENTITY_MISMATCH")
+            with patch.dict(os.environ, {"TEST_MODEL_API_KEY": "different-provider-credential"}):
+                with self.assertRaises(WorkerConfigurationError) as caught:
+                    await self.continue_worker(worker, first)
+                self.assertEqual(caught.exception.code, "CONTINUATION_IDENTITY_MISMATCH")
+            original_source = worker.source_commit
+            worker.source_commit = "b" * 40
+            with self.assertRaises(WorkerConfigurationError) as caught:
+                await self.continue_worker(worker, first)
+            self.assertEqual(caught.exception.code, "CONTINUATION_IDENTITY_MISMATCH")
+            worker.source_commit = original_source
+            original_template = self.template.read_bytes()
+            self.template.write_bytes(original_template + b"\n# changed template\n")
+            with self.assertRaises(WorkerConfigurationError) as caught:
+                await self.continue_worker(worker, first)
+            self.assertEqual(caught.exception.code, "CONTINUATION_IDENTITY_MISMATCH")
+            self.template.write_bytes(original_template)
+            # Rejected admission did not execute or consume an otherwise valid lease.
+            self.assertFalse((self.root / "correction").exists())
+            await self.continue_worker(worker, first)
+
+    async def test_unknown_tool_policy_is_not_a_silent_config_fallback(self):
+        worker = self.worker("raise AssertionError('must not execute')")
+        with self.assertRaises(WorkerConfigurationError) as caught:
+            await self.run_worker(worker, tool_policy="off")
+        self.assertEqual(caught.exception.code, "INVALID_TOOL_POLICY")
+        self.assertFalse((self.root / "stage").exists())
+
+    async def test_tool_free_policy_requires_native_proof_on_each_request(self):
+        worker = self.worker("""
+        config = pathlib.Path(os.environ['JIUWENSWARM_CONFIG_DIR']) / 'config.yaml'
+        assert 'tool_policy: none' in config.read_text()
+        if not request.get('session_id'):
+            emit(event(kind='chat.tool_policy', payload={'policy':'none','registered_tools':[],'verified':True,'profile':'code.no-tools.v1'}))
+            emit(result(sequence=1))
+        else:
+            emit(result())
+        """)
+        first = await self.run_worker(worker, tool_policy="none", read_only=True)
+        self.assertEqual(self.metadata()["tool_policy"], "none")
+        self.assertEqual(self.metadata()["tool_policy_proof_sequences"], [0])
+        with self.assertRaises(WorkerProtocolError) as caught:
+            await self.continue_worker(worker, first, tool_policy="none", read_only=True)
+        self.assertEqual(caught.exception.code, "MISSING_TOOL_POLICY_PROOF")
+
+    async def test_tool_free_policy_stops_observed_tool_attempt(self):
+        worker = self.worker("""
+        emit(event(kind='chat.tool_policy', payload={'policy':'none','registered_tools':[],'verified':True,'profile':'code.no-tools.v1'}))
+        emit(event(sequence=1, kind='chat.tool_call', payload={'tool_call':{'tool_call_id':'1','name':'read_file','arguments':{'file_path':'x'}}}))
+        time.sleep(0.5)
+        pathlib.Path('must-not-continue').touch()
+        emit(result(sequence=2))
+        """)
+        with self.assertRaises(WorkerProtocolError) as caught:
+            await self.run_worker(worker, tool_policy="none")
+        self.assertEqual(caught.exception.code, "TOOL_POLICY_VIOLATION")
+        self.assertFalse((self.root / "stage/state/must-not-continue").exists())
+
+    async def test_tool_free_policy_rejects_unverified_registration_claim(self):
+        worker = self.worker("""
+        emit(event(kind='chat.tool_policy', payload={'policy':'none','registered_tools':['read_file'],'verified':True,'profile':'code.no-tools.v1'}))
+        emit(result(sequence=1))
+        """)
+        with self.assertRaises(WorkerProtocolError) as caught:
+            await self.run_worker(worker, tool_policy="none")
+        self.assertEqual(caught.exception.code, "INVALID_TOOL_POLICY_PROOF")
+
+    async def test_native_merged_environment_references_are_bound_to_session(self):
+        worker = self.worker("""
+        if not request.get('session_id'):
+            config = pathlib.Path(os.environ['JIUWENSWARM_CONFIG_DIR']) / 'config.yaml'
+            config.write_text(config.read_text() + '\\nextra_model: ${TEST_EXTRA_MODEL}\\n')
+        emit(result())
+        """)
+        with patch.dict(os.environ, {"TEST_EXTRA_MODEL": "initial-model"}):
+            first = await self.run_worker(worker)
+            self.assertNotEqual(self.metadata()["requested_config_environment_sha256"], self.metadata()["archived_config_environment_sha256"])
+            with patch.dict(os.environ, {"TEST_EXTRA_MODEL": "changed-model"}):
+                with self.assertRaises(WorkerConfigurationError) as caught:
+                    await self.continue_worker(worker, first)
+                self.assertEqual(caught.exception.code, "CONTINUATION_ENVIRONMENT_CHANGED")
+            await self.continue_worker(worker, first)
+
+    async def test_continuation_rejects_shared_config_and_prior_receipt_drift(self):
+        worker = self.worker("emit(result())")
+        first = await self.run_worker(worker)
+        config = self.root / "stage/state/config/config.yaml"
+        original = config.read_bytes()
+        config.write_bytes(original + b"\n# external change\n")
+        with self.assertRaises(WorkerConfigurationError) as caught:
+            await self.continue_worker(worker, first)
+        self.assertEqual(caught.exception.code, "CONTINUATION_CONFIG_CHANGED")
+        config.write_bytes(original)
+        (self.root / "stage/usage.json").unlink()
+        with self.assertRaises(WorkerConfigurationError) as caught:
+            await self.continue_worker(worker, first)
+        self.assertEqual(caught.exception.code, "CONTINUATION_RECEIPT_CHANGED")
+        self.assertFalse((self.root / "correction").exists())
+
+    async def test_continuation_cannot_reset_an_expired_deadline(self):
+        worker = self.worker("emit(result())")
+        first = await self.run_worker(worker)
+        worker._sessions[first.session_id].deadline_monotonic = time.monotonic() - 1
+        with self.assertRaises(WorkerTimeoutError):
+            await self.continue_worker(worker, first, timeout_seconds=600)
+        self.assertFalse((self.root / "correction").exists())
+        with self.assertRaises(WorkerConfigurationError) as caught:
+            await self.continue_worker(worker, first)
+        self.assertEqual(caught.exception.code, "SESSION_NOT_RESUMABLE")
+
+    async def test_three_call_chain_rejects_tampered_older_receipt(self):
+        worker = self.worker("emit(result())")
+        first = await self.run_worker(worker)
+        second = await self.continue_worker(worker, first)
+        (self.root / "stage/usage.json").write_text('{"input_tokens": 0}')
+        with self.assertRaises(WorkerConfigurationError) as caught:
+            await self.continue_worker(worker, second, output_dir=self.root / "third")
+        self.assertEqual(caught.exception.code, "CONTINUATION_RECEIPT_CHANGED")
+        self.assertFalse((self.root / "third").exists())
+
+    async def test_correction_artifacts_cannot_live_in_mutable_native_state(self):
+        worker = self.worker("emit(result())")
+        first = await self.run_worker(worker)
+        with self.assertRaises(WorkerConfigurationError) as caught:
+            await self.continue_worker(worker, first, output_dir=self.root / "stage/state/logs/correction")
+        self.assertEqual(caught.exception.code, "OUTPUT_INSIDE_STATE")
+        self.assertFalse((self.root / "stage/state/logs/correction").exists())
+
+    async def test_concurrent_continuation_is_rejected_without_forking(self):
+        worker = self.worker("""
+        if request.get('session_id'):
+            pathlib.Path('correction-started').touch()
+            time.sleep(0.25)
+        emit(result())
+        """)
+        first = await self.run_worker(worker)
+        pending = asyncio.create_task(self.continue_worker(worker, first))
+        for _ in range(100):
+            if (self.root / "stage/state/correction-started").exists():
+                break
+            await asyncio.sleep(0.01)
+        with self.assertRaises(WorkerConfigurationError) as caught:
+            await self.continue_worker(worker, first, output_dir=self.root / "competing-correction")
+        self.assertEqual(caught.exception.code, "SESSION_BUSY")
+        await pending
+        self.assertFalse((self.root / "competing-correction").exists())
+
+    async def test_shorter_continuation_timeout_includes_preparation_and_spawn(self):
+        worker = self.worker("""
+        if request.get('session_id'):
+            time.sleep(0.45)
+            pathlib.Path('past-call-deadline').touch()
+        emit(result())
+        """)
+        first = await self.run_worker(worker)
+        create_process = asyncio.create_subprocess_exec
+
+        async def delayed_spawn(*args, **kwargs):
+            process = await create_process(*args, **kwargs)
+            await asyncio.sleep(0.2)
+            return process
+
+        with patch("jiuwenswarm.long_horizon.worker.asyncio.create_subprocess_exec", delayed_spawn):
+            with self.assertRaises(WorkerTimeoutError):
+                await self.continue_worker(worker, first, timeout_seconds=0.3)
+        metadata = json.loads((self.root / "correction/metadata.json").read_text())
+        self.assertAlmostEqual(metadata["call_deadline_monotonic"], metadata["call_admitted_monotonic"] + 0.3)
+        self.assertLess(metadata["call_deadline_monotonic"], metadata["session_deadline_monotonic"])
+        self.assertFalse((self.root / "stage/state/past-call-deadline").exists())
+
+    async def test_failed_budget_timeout_and_cancelled_continuations_are_not_resumable(self):
+        cases = {
+            "failed": ("emit(result(status='failed', exit_code=1, error={'code':'TEST_FAILURE','message':'fixture failure','retryable':False,'details':{}})); sys.exit(1)", WorkerExecutionError),
+            "budget": ("emit(event(kind='chat.usage_metadata', payload={'metadata':{'usage_metadata':{'finish_reason':'length'}}})); time.sleep(60)", WorkerBudgetExhaustedError),
+            "timeout": ("time.sleep(60)", WorkerTimeoutError),
+            "cancelled": ("time.sleep(60)", asyncio.CancelledError),
+        }
+        for name, (behavior, exception) in cases.items():
+            with self.subTest(name=name):
+                worker = self.worker("if request.get('session_id'):\n    " + behavior + "\nelse:\n    emit(result())\n")
+                first = await worker.run(stage="test", prompt="initial", workspace=self.workspace,
+                                         output_dir=self.root / (name + "-first"))
+                output = self.root / (name + "-correction")
+                task = asyncio.create_task(self.continue_worker(worker, first, output_dir=output, timeout_seconds=0.3))
+                if name == "cancelled":
+                    for _ in range(100):
+                        if (output / "events.jsonl").exists():
+                            break
+                        await asyncio.sleep(0.01)
+                    task.cancel()
+                with self.assertRaises(exception):
+                    await task
+                with self.assertRaises(WorkerConfigurationError) as caught:
+                    await self.continue_worker(worker, first, output_dir=self.root / (name + "-forbidden-retry"))
+                self.assertEqual(caught.exception.code, "SESSION_NOT_RESUMABLE")
+
+    async def test_continuation_does_not_accept_a_different_native_session(self):
+        worker = self.worker("""
+        record = result()
+        if request.get('session_id'):
+            record['session_id'] = 'different-session'
+        emit(record)
+        """)
+        first = await self.run_worker(worker)
+        with self.assertRaises(WorkerProtocolError):
+            await self.continue_worker(worker, first)
+        metadata = json.loads((self.root / "correction/metadata.json").read_text())
+        self.assertEqual(metadata["status"], "failed")
+        self.assertEqual(metadata["protocol_error"], "INVALID_JSONL")
+
+    async def test_redaction_does_not_rewrite_native_persistent_history(self):
+        worker = self.worker("""
+        state = pathlib.Path(os.environ['JIUWENSWARM_DATA_DIR'])
+        history = state / 'agent/sessions/history.json'
+        if request.get('session_id'):
+            assert history.read_text() == os.environ['TEST_MODEL_API_KEY']
+        else:
+            history.parent.mkdir(parents=True)
+            history.write_text(os.environ['TEST_MODEL_API_KEY'])
+            log = state / 'agent/.logs/provider.log'
+            log.parent.mkdir(parents=True)
+            log.write_text(os.environ['TEST_MODEL_API_KEY'])
+        emit(result())
+        """)
+        secret = "private-provider-credential-12345678"
+        with patch.dict(os.environ, {"TEST_MODEL_API_KEY": secret}):
+            first = await self.run_worker(worker)
+            await self.continue_worker(worker, first)
+        self.assertEqual((self.root / "stage/state/agent/sessions/history.json").read_text(), secret)
+        self.assertNotIn(secret, (self.root / "stage/state/agent/.logs/provider.log").read_text())
+        self.assertEqual((self.root / "stage/state").stat().st_mode & 0o777, 0o700)
+        for directory in (self.root / "stage", self.root / "correction"):
+            for path in directory.iterdir():
+                if path.is_file():
+                    self.assertNotIn(secret, path.read_text())
 
     async def test_inline_credentials_rejected_before_start(self):
         self.template.write_text("models:\n  api_key: hardcoded-secret-value\n")
@@ -260,6 +572,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.exception.result.status, "timed_out")
         self.assertEqual(len(context.exception.result.events), 1)
         self.assertTrue(self.metadata()["timed_out"])
+        self.assertGreaterEqual(self.metadata()["finished_at_monotonic"], self.metadata()["call_deadline_monotonic"])
         child_pid = int((self.root / "stage/state/child.pid").read_text())
         # Linux may retain a reparented zombie briefly; a live process is not allowed.
         status = subprocess_status(child_pid)
@@ -275,6 +588,62 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
+        self.assertEqual(self.metadata()["status"], "cancelled")
+
+    async def test_repeated_cancellation_cannot_abandon_native_process_cleanup(self):
+        worker = self.worker("""
+        if request.get('session_id'):
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            pathlib.Path('cancel-ready.pid').write_text(str(os.getpid()))
+            emit(event(payload={'content':'ready'}))
+            time.sleep(60)
+        else:
+            emit(result())
+        """)
+        first = await self.run_worker(worker)
+        task = asyncio.create_task(self.continue_worker(worker, first))
+        marker = self.root / "stage/state/cancel-ready.pid"
+        for _ in range(100):
+            if marker.exists():
+                break
+            await asyncio.sleep(0.01)
+        self.assertTrue(marker.exists())
+        pid = int(marker.read_text())
+        for _ in range(5):
+            task.cancel()
+            await asyncio.sleep(0.03)
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertIn(subprocess_status(pid), (None, "Z"))
+        metadata = json.loads((self.root / "correction/metadata.json").read_text())
+        self.assertEqual(metadata["status"], "cancelled")
+        self.assertEqual(metadata["actual_exit_code"], -9)
+        with self.assertRaises(WorkerConfigurationError) as caught:
+            await self.continue_worker(worker, first, output_dir=self.root / "forbidden")
+        self.assertEqual(caught.exception.code, "SESSION_NOT_RESUMABLE")
+
+    async def test_cancellation_while_spawning_still_reaps_owned_process(self):
+        worker = self.worker("time.sleep(60)")
+        processes = []
+        create_process = asyncio.create_subprocess_exec
+
+        async def delayed_spawn(*args, **kwargs):
+            process = await create_process(*args, **kwargs)
+            processes.append(process)
+            await asyncio.sleep(0.1)
+            return process
+
+        with patch("jiuwenswarm.long_horizon.worker.asyncio.create_subprocess_exec", delayed_spawn):
+            task = asyncio.create_task(self.run_worker(worker))
+            for _ in range(100):
+                if processes:
+                    break
+                await asyncio.sleep(0.01)
+            self.assertTrue(processes)
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+        self.assertIsNotNone(processes[0].returncode)
         self.assertEqual(self.metadata()["status"], "cancelled")
 
 

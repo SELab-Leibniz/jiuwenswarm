@@ -4,8 +4,9 @@
 Chrys 的长程工作流。入口始终执行 long-horizon，不经过路由分类器。迁移提交
 是独立的被测版本，不能将其结果标为原始 JiuwenSwarm 提交的成绩。
 
-流程为：冻结 S0 → P0 → S0 上的三路澄清调查、选择及代码定位 → repair →
-PACT 输入与公开检查 → PACT campaign。各个模型阶段和 PACT 的 Manager、
+参考工作流更新至 Chrys `0561cf0fa584fd56fdcd98c90cca6a5bc1890d95`。
+流程为：冻结 S0 → P0 → S0 上的三路澄清调查、选择与可选代码定位 →
+PACT 输入与公开检查 → 需要时进行 repair → PACT campaign。各个模型阶段和 PACT 的 Manager、
 Planner、Worker、Reviewer 都调用 JiuwenSwarm 原生机器接口；没有隐藏的
 Chrys solver。`pact-core` 继续负责 campaign 状态、worktree、验证和接纳。
 
@@ -41,8 +42,8 @@ python -m jiuwenswarm.long_horizon \
 ## 预算与恢复
 
 P0/repair 各有 6 小时基础预算，澄清及 PACT 输入各有 2 小时，PACT 单角色
-有 3 小时；2 小时 reserve 合并进同一次存活的原生调用，总时间仍受外层
-上限约束。不会通过重新启动阶段伪装续跑。超时、输出预算耗尽、取消或
+有 3 小时；2 小时 reserve 纳入该阶段的累计预算，总时间仍受外层
+上限约束。同会话格式纠正不重置截止时间。超时、输出预算耗尽、取消或
 信号中断会保留真实会话、候选补丁、Git bundle 和阶段凭据。
 
 PACT 每个 mission 最多 3 个 Worker/Reviewer 回合，与固定 ChrysPact profile
@@ -52,10 +53,41 @@ PACT 每个 mission 最多 3 个 Worker/Reviewer 回合，与固定 ChrysPact pr
 进程组。这不保证复现 Chrys 内部在 validator/tool 之前暂停的精确时序；
 此类未完成尝试不会进入独立判分。
 
-这一版的各阶段是独立 Jiuwen session，尚不自动跨进程继续。Manager 或
-Planner 未交出有效 JSON 时保留协议错误；不会新建会话冒充 Chrys 原本的
-同会话补交。Reviewer 返回严格 JSON，由 adapter 保存为 PACT 的传输工件，
+阶段之间使用独立 Jiuwen session；阶段内有界格式纠正通过原生持久状态
+恢复同一 session，每次使用新 request ID 和独立、不可变的调用凭据。
+Manager 或 Planner 最多补交一次。失败、预算耗尽或中断后不再补交。
+容器假模型探针已观察到跨进程历史恢复，但固定原生版本的异步历史写入
+不提供逐次持久化确认；不能仅凭相同 session ID 声称完整历史已恢复。
+Reviewer 返回严格 JSON，由 adapter 保存为 PACT 的传输工件，
 保持 reviewer 的只读工具边界。
+
+公开检查先在 S0 上调查，再使用全新的无工具 session 合成；被拒绝的
+工件只在该合成 session 内修正。无工具策略是本集成新增的显式原生扩展，
+需确认实际模型请求不含工具定义；默认 Jiuwen Code 工具行为保持不变。
+每条 AC 完成独立审查后才发布可复用检查点。
+
+澄清 proposer 仍将调查和合成合并在原生 Code 调用内，全程允许 read/grep；
+最多一次格式修正、一次证据补充。这与 Chrys 分开的 proposer 无工具合成
+轮次不同。控制器还直接启动 PACT，省去 Chrys 的模型交接轮次；比较结果
+需连同这些已记录的适配差异解释。
+
+阶段快照保留源文件、已接受工件、真实调用凭据及配置身份，完成标记最后
+写入。显式 P0 恢复必须验证包哈希、原始需求和干净的原 Git 基座，再跳过
+初始 P0 模型调用，从澄清继续。恢复产物单独标记，不计作 fresh pass@1。
+完整 workflow 和任意 PACT 角色的跨进程自动恢复仍未实现。
+
+离线工具不调用模型；在本集成的 Python 环境中执行：
+
+```bash
+python -m jiuwenswarm.long_horizon.workflow_checkpoint verify /path/to/checkpoint.json
+python -m jiuwenswarm.long_horizon.workflow_checkpoint restore /path/to/checkpoint.json \
+  --destination /new/empty/source
+python -m jiuwenswarm.long_horizon.workflow_checkpoint export-p0 /path/to/long-horizon-suite \
+  --destination /new/p0-package
+```
+
+`restore` 仅恢复源文件供检查。正式恢复运行由 bench 固定 package SHA-256
+和原 attempt 身份，不能把任意修改过的工作目录作为已恢复 P0。
 
 ## 验证
 

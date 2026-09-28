@@ -133,7 +133,7 @@ class PactTest(unittest.IsolatedAsyncioTestCase):
             require_no_pending_suspension(self.workspace)
         self.assertEqual([c['stage'] for c in worker.calls if c['stage'] != 'pact_manager'], ['pact_worker'])
 
-    async def test_semantic_role_binding_and_no_fresh_session_replay(self):
+    async def test_semantic_role_binding_and_bounded_same_session_correction(self):
         class Worker:
             calls = []
             async def run(self, **kwargs):
@@ -148,7 +148,12 @@ class PactTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, 'output_missing')
         self.assertEqual(result.final_text, '')
         self.assertEqual((self.output / 'roles/manager/0001/native-final-raw.txt').read_text(), 'no json')
-        self.assertEqual(len(worker.calls), 1)
+        self.assertEqual(len(worker.calls), 2)
+        self.assertEqual(worker.calls[1]['session_id'], 's1')
+        self.assertEqual(worker.calls[1]['workspace'], worker.calls[0]['workspace'])
+        self.assertEqual(worker.calls[1]['stage'], worker.calls[0]['stage'])
+        self.assertNotEqual(worker.calls[1]['output_dir'], worker.calls[0]['output_dir'])
+        self.assertTrue(worker.calls[1]['read_only'])
         self.assertTrue(worker.calls[0]['read_only'])
         self.assertEqual(worker.calls[0]['stage'], 'pact_manager')
         self.assertTrue((self.output / 'roles/manager/0001/protocol-output.json').exists())
@@ -385,3 +390,197 @@ class PactTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result.status, 'output_missing')
                 self.assertEqual(result.final_text, '')
                 self.assertEqual((self.output / role / 'roles' / role / '0001/native-final-raw.txt').read_text(), native)
+
+    async def test_manager_format_correction_retains_both_outputs_and_usage(self):
+        initial = '{"action":"block","reason":"bad "quotes""}'
+        # Build the valid second response independently; never host-repair the first.
+        corrected = json.dumps({'action': 'block', 'reason': 'bad "quotes"'})
+        class CorrectionWorker:
+            def __init__(inner):
+                inner.calls = []
+            async def run(inner, **kwargs):
+                self.assertFalse(any(kwargs['output_dir'].iterdir()))
+                inner.calls.append(kwargs)
+                index = len(inner.calls)
+                return SimpleNamespace(
+                    status='completed', final_text=initial if index == 1 else corrected,
+                    session_id='same-native-session',
+                    usage={'input_tokens': 11 if index == 1 else 5, 'output_tokens': 7 if index == 1 else 3},
+                    events=[{'request_id': f'native-request-{index}'}],
+                )
+        worker = CorrectionWorker()
+        adapter = JiuwenRoleAdapter(
+            semantic_role='manager', worker=worker, outer_loop=asyncio.get_running_loop(),
+            campaign_id='correction-test', workspace=self.workspace,
+            output_dir=self.output, abort_event=threading.Event())
+        result = await asyncio.to_thread(adapter.run_turn, TurnRequest(
+            role='worker', prompt='Choose the next action.', workdir=self.workspace, timeout_seconds=60))
+        self.assertEqual(result.status, 'completed')
+        self.assertEqual(json.loads(result.final_text), json.loads(corrected))
+        self.assertEqual(len(worker.calls), 2)
+        self.assertEqual(worker.calls[1]['session_id'], 'same-native-session')
+        self.assertEqual(worker.calls[1]['stage'], 'pact_manager')
+        self.assertLess(worker.calls[1]['timeout_seconds'], worker.calls[0]['timeout_seconds'])
+        first = self.output / 'roles/manager/0001'
+        second = self.output / 'roles/manager/0001-format-repair'
+        self.assertEqual((first / 'native-final-raw.txt').read_text(), initial)
+        self.assertEqual((first / 'protocol-payload.txt').read_text(), initial)
+        self.assertEqual((second / 'native-final-raw.txt').read_text(), corrected)
+        chain = json.loads((first / 'role-call-chain.json').read_text())
+        self.assertTrue(chain['correction_attempted'])
+        self.assertEqual(chain['cumulative_usage'], {'input_tokens': 16, 'output_tokens': 10})
+        self.assertEqual(chain['calls'][1]['requested_session_id'], 'same-native-session')
+        self.assertEqual(chain['calls'][1]['correction_kind'], 'format_schema')
+        self.assertEqual(chain['calls'][0]['request_ids'], ['native-request-1'])
+        self.assertEqual(chain['calls'][1]['native_final_sha256'], hashlib.sha256(corrected.encode()).hexdigest())
+
+    async def test_valid_json_schema_errors_are_left_to_pact_not_internal_correction(self):
+        class Worker:
+            calls = []
+            async def run(inner, **kwargs):
+                inner.calls.append(kwargs)
+                return SimpleNamespace(status='completed', final_text='{"wrong_field":true}', session_id='valid-json')
+        worker = Worker()
+        adapter = JiuwenRoleAdapter(
+            semantic_role='planner', worker=worker, outer_loop=asyncio.get_running_loop(),
+            campaign_id='schema-gate-test', workspace=self.workspace,
+            output_dir=self.output, abort_event=threading.Event())
+        result = await asyncio.to_thread(adapter.run_turn, TurnRequest(
+            role='worker', prompt='Planner request', workdir=self.workspace, timeout_seconds=60))
+        self.assertEqual(result.status, 'completed')
+        self.assertEqual(len(worker.calls), 1)
+        self.assertEqual(json.loads(result.final_text), {'wrong_field': True})
+
+    async def test_no_time_remaining_before_correction_is_budget_stop_without_new_call(self):
+        class Worker:
+            calls = []
+            async def run(inner, **kwargs):
+                inner.calls.append(kwargs)
+                await asyncio.sleep(0.02)
+                return SimpleNamespace(status='completed', final_text='malformed', session_id='deadline')
+        worker = Worker()
+        adapter = JiuwenRoleAdapter(
+            semantic_role='manager', worker=worker, outer_loop=asyncio.get_running_loop(),
+            campaign_id='deadline-test', workspace=self.workspace,
+            output_dir=self.output, abort_event=threading.Event())
+        with self.assertRaises(RoleBudgetExhausted):
+            await asyncio.to_thread(adapter.run_turn, TurnRequest(
+                role='worker', prompt='Manager request', workdir=self.workspace, timeout_seconds=0.001))
+        self.assertEqual(len(worker.calls), 1)
+        self.assertFalse((self.output / 'roles/manager/0001-format-repair').exists())
+
+    async def test_correction_budget_failure_keeps_both_call_receipts_without_retry(self):
+        from jiuwenswarm.long_horizon.worker import WorkerBudgetExhaustedError
+        class Worker:
+            calls = []
+            async def run(inner, **kwargs):
+                inner.calls.append(kwargs)
+                result = SimpleNamespace(status='completed', final_text='malformed', session_id='budget-chain',
+                                         usage={'input_tokens': 4}, events=[])
+                if len(inner.calls) == 2:
+                    result.status = 'budget_exhausted'
+                    result.final_text = 'partial correction'
+                    raise WorkerBudgetExhaustedError('Native output budget exhausted',
+                        code='BUDGET_EXHAUSTED', output_dir=kwargs['output_dir'], result=result)
+                return result
+        worker = Worker()
+        adapter = JiuwenRoleAdapter(
+            semantic_role='planner', worker=worker, outer_loop=asyncio.get_running_loop(),
+            campaign_id='budget-chain-test', workspace=self.workspace,
+            output_dir=self.output, abort_event=threading.Event())
+        with self.assertRaises(RoleBudgetExhausted):
+            await asyncio.to_thread(adapter.run_turn, TurnRequest(
+                role='worker', prompt='Planner request', workdir=self.workspace, timeout_seconds=60))
+        self.assertEqual(len(worker.calls), 2)
+        first = self.output / 'roles/planner/0001'
+        self.assertEqual((first / 'native-final-raw.txt').read_text(), 'malformed')
+        self.assertEqual((first.with_name('0001-format-repair') / 'native-final-raw.txt').read_text(), 'partial correction')
+        chain = json.loads((first / 'role-call-chain.json').read_text())
+        self.assertEqual(chain['cumulative_usage'], {'input_tokens': 8})
+        self.assertEqual(chain['calls'][1]['status'], 'budget_exhausted')
+
+    async def test_reviewer_uses_only_existing_pact_core_decision_repair(self):
+        class RepairReviewer(ScriptedWorker):
+            async def run(inner, **kwargs):
+                result = await super().run(**kwargs)
+                if kwargs['stage'] == 'pact_reviewer':
+                    if kwargs['prompt'].startswith('# Reviewer Decision Repair'):
+                        result.final_text = '{"verdict":"complete"}'
+                    else:
+                        result.final_text = 'The public contract is satisfied.\nPACT_COMPLETE'
+                return result
+        worker = RepairReviewer()
+        result = await self.campaign(worker)
+        self.assertEqual(result['status'], 'completed')
+        reviews = [call for call in worker.calls if call['stage'] == 'pact_reviewer']
+        self.assertEqual(len(reviews), 2)
+        self.assertTrue(reviews[1]['prompt'].startswith('# Reviewer Decision Repair'))
+        self.assertTrue(all(call['session_id'] is None for call in reviews))
+        self.assertTrue(all('format-repair' not in call['output_dir'].name for call in reviews))
+
+    async def test_format_correction_rejects_fresh_session_identity(self):
+        class Worker:
+            calls = []
+            async def run(inner, **kwargs):
+                inner.calls.append(kwargs)
+                if len(inner.calls) == 1:
+                    return SimpleNamespace(status='completed', final_text='malformed', session_id='original')
+                return SimpleNamespace(status='completed', final_text='{"action":"block"}', session_id='different')
+        worker = Worker()
+        adapter = JiuwenRoleAdapter(
+            semantic_role='manager', worker=worker, outer_loop=asyncio.get_running_loop(),
+            campaign_id='wrong-session-test', workspace=self.workspace,
+            output_dir=self.output, abort_event=threading.Event())
+        result = await asyncio.to_thread(adapter.run_turn, TurnRequest(
+            role='worker', prompt='Manager request', workdir=self.workspace, timeout_seconds=60))
+        self.assertEqual(result.status, 'spawn_failed')
+        self.assertEqual(result.final_text, '')
+        self.assertIn('changed session identity', result.stderr_tail)
+        self.assertEqual(len(worker.calls), 2)
+        chain = json.loads((self.output / 'roles/manager/0001/role-call-chain.json').read_text())
+        self.assertEqual([call['session_id'] for call in chain['calls']], ['original', 'different'])
+
+    async def test_controller_budget_admission_error_suspends_without_format_retry(self):
+        from jiuwenswarm.long_horizon.controller import BudgetStop
+        class Worker:
+            calls = []
+            async def run(inner, **kwargs):
+                inner.calls.append(kwargs)
+                raise BudgetStop('Whole workflow deadline exhausted before worker admission')
+        worker = Worker()
+        adapter = JiuwenRoleAdapter(
+            semantic_role='manager', worker=worker, outer_loop=asyncio.get_running_loop(),
+            campaign_id='admission-budget-test', workspace=self.workspace,
+            output_dir=self.output, abort_event=threading.Event())
+        with self.assertRaises(RoleBudgetExhausted):
+            await asyncio.to_thread(adapter.run_turn, TurnRequest(
+                role='worker', prompt='Manager request', workdir=self.workspace, timeout_seconds=60))
+        self.assertEqual(len(worker.calls), 1)
+        chain = json.loads((self.output / 'roles/manager/0001/role-call-chain.json').read_text())
+        self.assertEqual(chain['calls'], [])  # no native result was observed
+        self.assertFalse(chain['correction_attempted'])
+
+    async def test_failed_manager_turns_do_not_trigger_format_correction(self):
+        from jiuwenswarm.long_horizon.pact.role_runner import RoleTurnCancelled
+        for status in ('failed', 'budget_exhausted', 'timed_out', 'cancelled'):
+            with self.subTest(status=status):
+                calls = []
+                class Worker:
+                    async def run(inner, **kwargs):
+                        calls.append(kwargs)
+                        return SimpleNamespace(status=status, final_text='malformed', session_id='failed-turn')
+                adapter = JiuwenRoleAdapter(
+                    semantic_role='manager', worker=Worker(), outer_loop=asyncio.get_running_loop(),
+                    campaign_id='failed-turn-test', workspace=self.workspace,
+                    output_dir=self.output / status, abort_event=threading.Event())
+                request = TurnRequest(role='worker', prompt='Manager request', workdir=self.workspace, timeout_seconds=60)
+                if status in ('budget_exhausted', 'timed_out'):
+                    with self.assertRaises(RoleBudgetExhausted):
+                        await asyncio.to_thread(adapter.run_turn, request)
+                elif status == 'cancelled':
+                    with self.assertRaises(RoleTurnCancelled):
+                        await asyncio.to_thread(adapter.run_turn, request)
+                else:
+                    result = await asyncio.to_thread(adapter.run_turn, request)
+                    self.assertEqual(result.status, 'spawn_failed')
+                self.assertEqual(len(calls), 1)
