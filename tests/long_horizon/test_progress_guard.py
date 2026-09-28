@@ -10,7 +10,7 @@ def state(tree="a", feedback="Need parser integration"):
     candidate = State(tree=tree)
     return State(candidate=candidate, review=State(candidate=candidate, artifact=Path("review"),
                  reasons=["feedback_recorded"], feedback=feedback), acceptance=None, delivery=None,
-                 verification=State(status="failed", check_results=[{"name":"public", "version":1,
+                 verification=State(status="failed", candidate=candidate, check_results=[{"name":"public", "version":1,
                                     "status":"failed", "exit_code":1}]), contract_revision=1,
                  contract={"goal":"fixture"}, constraints=[], checks=[],
                  unresolved_assumptions=[], user_decisions=[])
@@ -25,10 +25,10 @@ class ProgressGuardTests(unittest.TestCase):
         self.assertFalse(guard.evidence()["acceptance_waived"])
         self.assertEqual(len(guard.evidence()["reviewed_inputs"]), 3)
 
-    def test_two_state_cycle_stops_and_substantive_progress_does_not(self):
+    def test_alternating_candidates_and_substantive_progress_do_not_stop(self):
         guard = ReviewProgressGuard()
         for count in range(1,5): self.assertFalse(guard.observe(state(str(count % 2)), count))
-        self.assertTrue(guard.observe(state("1"), 5))
+        self.assertFalse(guard.observe(state("1"), 5))
         guard = ReviewProgressGuard()
         for count in range(1,10): self.assertFalse(guard.observe(state(feedback=str(count)), count))
 
@@ -45,6 +45,15 @@ class ProgressGuardTests(unittest.TestCase):
                           ("acceptance",{}),("delivery",{})]:
             guard=ReviewProgressGuard();changed=copy.copy(state());setattr(changed,key,value)
             for count in range(1,5):self.assertFalse(guard.observe(changed,count))
+
+    def test_waits_for_exact_candidate_verification_and_does_not_consume_round(self):
+        guard=ReviewProgressGuard();current=state()
+        self.assertFalse(guard.observe(current,1))
+        current.verification.candidate=State(tree='stale')
+        self.assertFalse(guard.observe(current,2))
+        current.verification.candidate=current.candidate
+        self.assertFalse(guard.observe(current,2))
+        self.assertTrue(guard.observe(current,3))
 
     def test_review_paths_and_verifier_timestamps_are_not_progress(self):
         guard=ReviewProgressGuard()

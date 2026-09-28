@@ -24,6 +24,8 @@ class ReviewProgressGuard:
                 or completed_workers < 1 or completed_workers <= self._last_completed_workers):
             return False
         verification = state.verification
+        if verification is not None and verification.candidate != state.candidate:
+            return False
         signature = hashlib.sha256(json.dumps({
             "tree": state.candidate.tree,
             "contract_revision": state.contract_revision, "contract": state.contract,
@@ -39,9 +41,10 @@ class ReviewProgressGuard:
         self._last_completed_workers = completed_workers
         self._reviews.append({"review": str(review.artifact), "input_sha256": signature,
                               "completed_workers": completed_workers})
-        return sum(row["input_sha256"] == signature for row in self._reviews) >= 3
+        recent = list(self._reviews)[-3:]
+        return len(recent) == 3 and all(row['input_sha256'] == signature for row in recent)
 
     def evidence(self) -> dict[str, Any]:
         return {"schema": "jiuwenswarm-pact/no-progress-stop/v1",
-                "policy": "three identical reviewed inputs in six completed Worker rounds",
+                "policy": "three consecutive identical reviewed inputs in completed Worker rounds",
                 "reviewed_inputs": list(self._reviews), "acceptance_waived": False}

@@ -64,8 +64,17 @@ The original JiuwenSwarm uv.lock and SDK revisions remain unchanged.
 ## Caller-owned repeat-cycle stop (2026-09-29)
 
 The original-task benchmark caller stops after three identical reviewed inputs
-within six completed Worker rounds. It reads the pinned Core budget ledger;
+in consecutive completed Worker rounds. It reads the pinned Core budget ledger;
 bookkeeping revisions and polling do not count. Native Core controls verify
 that the latest candidate still exports without acceptance. Core/SDK internals
 and independent grading are unchanged. The control fixture has its own budget
 and does not represent a paid-model evaluation.
+
+Sync basis: Chrys 0e99732ba6b71ddd7ec1b0f6c3df552a90416ecd (exact-candidate verification). PACT Git-link export is a separately pinned host wheel; Jiuwen SDK uv.lock remains unchanged.
+
+The next benchmark treatment can select the external Core wheel SHA-256
+`592efcacf132b9b79f8be87d64bd8a49e47c2f90286db60bf5c5fd48131d77a9`.
+It comes from PACT `a2e50f6709caaa29e3bbd87b114d981a543ae00c` plus the
+Git-link export patch published with Chrys `0e99732ba6b71ddd7ec1b0f6c3df552a90416ecd`.
+Opaque submodule commit identities are exported and hash-verified without
+fetching submodule contents. Old running images retain their selected Core.
