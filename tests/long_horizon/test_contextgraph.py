@@ -25,6 +25,9 @@ def graph():
 
     class Handler(BaseHTTPRequestHandler):
         def reply(self):
+            # Closing with an unread POST body can reset the client on macOS.
+            if self.command == "POST":
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
             records.append(self.path)
             body = state.get("raw") or json.dumps({k: v for k, v in state.items() if k != "code"}).encode()
             self.send_response(state.get("code", 200))

@@ -201,6 +201,11 @@ class JiuwenRoleAdapter:
                 'The baseline implementation is already present: read it first and preserve what satisfies the requirement. '
                 'The candidate may be a clean commit: an empty diff does not mean work is absent. '
                 'Do not edit the primary checkout, reset to an older base, or change shared Git refs. '
+                'Never write, copy, sync, install, or rebuild candidate changes into the original source checkout, '
+                'even to reuse its compiled extensions or test environment. '
+                'If imports resolve there, rebuild or install in a candidate-local isolated directory and recheck '
+                'module __file__ paths. Keep original source Git and submodule metadata unchanged; '
+                'do not copy .git files or directories between checkouts. '
                 'The controller owns promotion to the primary workspace.'
             )
         if self.semantic_role == 'reviewer':

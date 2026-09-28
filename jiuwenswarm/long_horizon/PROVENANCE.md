@@ -82,3 +82,11 @@ It comes from PACT `a2e50f6709caaa29e3bbd87b114d981a543ae00c` plus the
 Git-link export patch published with Chrys `0e99732ba6b71ddd7ec1b0f6c3df552a90416ecd`.
 Opaque submodule commit identities are exported and hash-verified without
 fetching submodule contents. Old running images retain their selected Core.
+
+
+Synchronized Chrys `e5bd40ba483970c7a04fcb55d8ec5679361274fc`: Worker and
+Reviewer role context requires candidate-local rebuild/install when imports
+resolve into the original source checkout. Original Git and submodule metadata
+must not be copied or modified. This is a role instruction change; Core source
+ownership/export guards and the `592efcacf...` Git-link wheel remain unchanged.
+It does not repair Core cleanup of read-only Go module caches.
