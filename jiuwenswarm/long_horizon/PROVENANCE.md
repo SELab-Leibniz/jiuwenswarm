@@ -38,3 +38,24 @@ workflow. External memory and writeback are disabled for the initial treatment.
 Graph construction, embeddings and release services remain outside this agent
 integration. The benchmark repository owns dataset revisions, complete task
 selection, independent grading and frozen run identities.
+
+The original-task benchmark entry is migrated from Chrys
+`3f78185e298800b3e3f735f932a7ee2abb7bc25f`, including its routing-off fix.
+It creates canonical PACT Work from the verbatim original task, runs P0 once,
+clarifies frozen S0, binds the acceptance brief and enters the public
+BenchDriver with native Jiuwen Worker/Reviewer adapters. This separately selected
+workflow does not synthesize Goal Contract, Initial Plan, Missions or a mandatory
+public verifier before entering PACT. Core owns derived checks, review cadence,
+acceptance and delivery. A sealed export may be independently graded even when
+internal acceptance has not occurred. External grading never runs in this agent.
+Every actual native clarification call enters the same immutable trial ledger.
+Native reviewer transport captures its final JSON with read-only source tools;
+this differs from Chrys's writable transport file. The native proposer remains
+the separately documented combined investigation/synthesis adapter.
+
+This workflow uses the updated external `pact-core==0.2.0.dev0` wheel, SHA-256
+`06c8c2ccba2112ce7614fc3ba0866539bd53f8314c15bce9049153468b8b5d2a`.
+Its dependency version is unchanged but its bytes and public WorkRuntime/
+BenchDriver interfaces differ from the legacy wheel. Both are explicitly pinned
+by their selecting benchmark configuration; they cannot be silently substituted.
+The original JiuwenSwarm uv.lock and SDK revisions remain unchanged.

@@ -27,3 +27,18 @@ class SideCallIntegrityError(RuntimeError):
     """The purported frozen public source changed; no model verdict is admissible."""
 
     code = "SNAPSHOT_CHANGED"
+
+
+from dataclasses import dataclass
+from typing import Literal, Protocol
+
+SideCallStatus = Literal["completed", "timeout", "error"]
+
+@dataclass(frozen=True, slots=True)
+class SideCallTicket:
+    token: str
+    timeout_seconds: float | None
+
+class SideCallAdmission(Protocol):
+    def admit(self, stage: str) -> SideCallTicket: ...
+    def finish(self, ticket: SideCallTicket, *, status: SideCallStatus, detail: str = "") -> None: ...

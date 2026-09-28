@@ -112,3 +112,10 @@ python -m jiuwenswarm.long_horizon.workflow_checkpoint export-p0 /path/to/long-h
 只读权限、证据、预算/中断、补丁恢复、公开验证与流程接线；它们不产生
 模型评测分数。容器安装、假模型工具探测、独立 grader 控制和真实模型
 评测分别记录，不能互相替代。
+
+更新后的独立入口为 `python -m jiuwenswarm.long_horizon.pact.long_horizon_benchmark`，
+参考 Chrys `3f78185e298800b3e3f735f932a7ee2abb7bc25f`。它执行原始任务 → P0 →
+S0 澄清 → PACT BenchDriver，不再强制先生成 Goal Contract、Initial Plan 与
+公开 verifier。原生 Worker/Reviewer、澄清 side call 共享固定 trial 预算，
+不经过路由。最终输出 `selection.json` 和 Core 封存候选；内部接纳和独立评测
+分开记录。旧入口和旧测评工件保留，不能混入新版本成绩。

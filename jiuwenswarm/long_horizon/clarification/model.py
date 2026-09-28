@@ -100,8 +100,9 @@ class JiuwenClarificationModel(ClarificationModelRunner):
 
     def __init__(self, *, worker: Any, snapshot: WorkspaceSnapshot, output_dir: Path,
                  timeout_seconds: float = 7200.0, runtime_evidence: str = "",
-                 checkpoint_identity: dict | None = None, checkpoint_root: Path | None = None) -> None:
+                 checkpoint_identity: dict | None = None, checkpoint_root: Path | None = None, side_call_admission: Any = None) -> None:
         self.worker = worker
+        self.side_call_admission = side_call_admission
         self.snapshot = snapshot
         self.workspace = snapshot_workspace(snapshot)
         self.output_dir = Path(output_dir)
@@ -170,6 +171,30 @@ class JiuwenClarificationModel(ClarificationModelRunner):
         })
 
     async def _call(self, stage: str, prompt: str, *, schema: dict | None = None,
+                    session_id: str | None = None, tool_policy: str = "configured") -> Any:
+        admission = self.side_call_admission
+        if admission is None:
+            return await self._call_unbudgeted(stage, prompt, schema=schema,
+                session_id=session_id, tool_policy=tool_policy)
+        ticket = admission.admit(stage)
+        status, detail = "error", "native call did not finish"
+        try:
+            import asyncio
+            async with asyncio.timeout(ticket.timeout_seconds):
+                result = await self._call_unbudgeted(stage, prompt, schema=schema,
+                    session_id=session_id, tool_policy=tool_policy)
+            status, detail = "completed", ""
+            return result
+        except (TimeoutError, SideCallBudgetExhausted) as exc:
+            status, detail = "timeout", type(exc).__name__
+            raise SideCallBudgetExhausted("trial side-call budget exhausted") from exc
+        except BaseException as exc:
+            detail = type(exc).__name__
+            raise
+        finally:
+            admission.finish(ticket, status=status, detail=detail)
+
+    async def _call_unbudgeted(self, stage: str, prompt: str, *, schema: dict | None = None,
                     session_id: str | None = None, tool_policy: str = "configured") -> Any:
         self._sequence += 1
         sequence = self._sequence
