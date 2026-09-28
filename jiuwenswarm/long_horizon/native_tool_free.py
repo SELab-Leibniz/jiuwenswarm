@@ -42,6 +42,26 @@ def assert_tool_free_agent(agent: Any) -> None:
         raise NativeToolPolicyViolation("native tool resources were configured")
 
 
+async def _finish_policy_violation(ctx: Any, reason: str) -> None:
+    """Use native termination control, since callback exceptions are swallowed.
+
+    Pinned CallbackFramework.trigger logs ordinary callback exceptions and
+    continues. ReAct checks request_force_finish immediately after a model call,
+    before adding or dispatching its tool calls, and before decorated operations.
+    Set that native signal before emitting the native error observation so even
+    an event transport error cannot turn a policy failure into model/tool work.
+    """
+    from openjiuwen.core.session.stream import OutputSchema
+
+    message = str(NativeToolPolicyViolation(reason))
+    ctx.request_force_finish({"result_type": "error", "output": message})
+    if ctx.session is not None:
+        await ctx.session.write_stream(OutputSchema(
+            type="error", index=0,
+            payload={"error": message, "code": "TOOL_POLICY_VIOLATION"},
+        ))
+
+
 def build_tool_free_rail() -> Any:
     # Lazy imports keep deterministic profile validation independent of the
     # native runtime installation. Actual construction always uses native Rail.
@@ -56,11 +76,17 @@ def build_tool_free_rail() -> Any:
             assert_tool_free_agent(agent)
 
         async def before_model_call(self, ctx: Any) -> None:
-            assert_tool_free_agent(ctx.agent)
+            try:
+                assert_tool_free_agent(ctx.agent)
+            except NativeToolPolicyViolation:
+                await _finish_policy_violation(ctx, "native tool resources or abilities were registered")
+                return
             if getattr(ctx.inputs, "tools", None):
-                raise NativeToolPolicyViolation("model input contains tools")
+                await _finish_policy_violation(ctx, "model input contains tools")
+                return
             if ctx.session is None:
-                raise NativeToolPolicyViolation("native event session is unavailable")
+                await _finish_policy_violation(ctx, "native event session is unavailable")
+                return
             await ctx.session.write_stream(OutputSchema(
                 type="chat.tool_policy", index=0,
                 payload={"policy": "none", "registered_tools": [],
@@ -72,12 +98,12 @@ def build_tool_free_rail() -> Any:
             tool_calls = (response.get("tool_calls") if isinstance(response, Mapping)
                           else getattr(response, "tool_calls", None))
             if tool_calls:
-                raise NativeToolPolicyViolation("model returned a tool call")
+                await _finish_policy_violation(ctx, "model returned a tool call")
 
         async def before_tool_call(self, ctx: Any) -> None:
             # Defense in depth: no tool is registered, and even a future
             # unexpected execution path must fail before invoking a tool.
-            raise NativeToolPolicyViolation("tool execution was attempted")
+            await _finish_policy_violation(ctx, "tool execution was attempted")
 
     return NativeToolFreeRail()
 
@@ -99,7 +125,8 @@ def build_tool_free_completion_rail() -> Any:
 
         async def before_task_iteration(self, ctx: Any) -> None:
             if self._get_run_kind(ctx) == "goal":
-                raise NativeToolPolicyViolation("goals are disabled in tool-free synthesis")
+                await _finish_policy_violation(ctx, "goals are disabled in tool-free synthesis")
+                return
             await super().before_task_iteration(ctx)
 
     return NativeToolFreeCompletionRail()

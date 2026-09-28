@@ -66,6 +66,11 @@ def _method(path, class_name, name, globals_):
 
 
 class ToolFreeProfileTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        native_modules = patch.dict(sys.modules, _native_stubs())
+        native_modules.start()
+        self.addCleanup(native_modules.stop)
+
     def test_explicit_opt_in_and_unknown_policy_fails(self):
         self.assertEqual(code_tool_policy({}), "configured")
         self.assertEqual(code_tool_policy({"modes": {"code": {"tool_policy": "none"}}}), "none")
@@ -102,26 +107,51 @@ class ToolFreeProfileTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(sys.modules, _native_stubs()):
             rail = build_tool_free_rail()
         ctx = SimpleNamespace(agent=_agent(), inputs=SimpleNamespace(tools=[object()]),
-                              session=SimpleNamespace(write_stream=AsyncMock()))
-        with self.assertRaises(NativeToolPolicyViolation):
-            await rail.before_model_call(ctx)
-        ctx.session.write_stream.assert_not_awaited()
+                              session=SimpleNamespace(write_stream=AsyncMock()),
+                              request_force_finish=Mock())
+        await rail.before_model_call(ctx)
+        self.assertEqual(ctx.request_force_finish.call_args.args[0]["result_type"], "error")
+        self.assertEqual(ctx.session.write_stream.await_args.args[0].type, "error")
         ctx.inputs.tools = None
         ctx.agent.ability_manager.list = lambda: [object()]
-        with self.assertRaises(NativeToolPolicyViolation):
-            await rail.before_model_call(ctx)
-        ctx.session.write_stream.assert_not_awaited()
+        await rail.before_model_call(ctx)
+        self.assertEqual(ctx.request_force_finish.call_count, 2)
+        self.assertEqual(ctx.session.write_stream.await_args.args[0].type, "error")
 
     async def test_malicious_tool_call_fails_without_execution(self):
         with patch.dict(sys.modules, _native_stubs()):
             rail = build_tool_free_rail()
         for response in ({"tool_calls": [{"name": "bash"}]},
                          SimpleNamespace(tool_calls=[SimpleNamespace(name="write_file")])):
-            with self.subTest(response=response), self.assertRaises(NativeToolPolicyViolation):
-                await rail.after_model_call(SimpleNamespace(inputs=SimpleNamespace(response=response)))
+            with self.subTest(response=response):
+                ctx = SimpleNamespace(inputs=SimpleNamespace(response=response),
+                                      session=SimpleNamespace(write_stream=AsyncMock()),
+                                      request_force_finish=Mock())
+                await rail.after_model_call(ctx)
+                result = ctx.request_force_finish.call_args.args[0]
+                self.assertEqual(result["result_type"], "error")
+                self.assertIn("JIUWENSWARM_TOOL_POLICY_VIOLATION", result["output"])
+                self.assertEqual(ctx.session.write_stream.await_args.args[0].type, "error")
         await rail.after_model_call(SimpleNamespace(inputs=SimpleNamespace(response=SimpleNamespace(content="{}", tool_calls=[]))))
-        with self.assertRaises(NativeToolPolicyViolation):
-            await rail.before_tool_call(SimpleNamespace())
+        ctx = SimpleNamespace(session=None, request_force_finish=Mock())
+        await rail.before_tool_call(ctx)
+        self.assertEqual(ctx.request_force_finish.call_args.args[0]["result_type"], "error")
+
+    async def test_callback_error_swallowing_cannot_remove_native_stop_signal(self):
+        rail = build_tool_free_rail()
+        ctx = SimpleNamespace(inputs=SimpleNamespace(response={"tool_calls": [{"name": "bash"}]}),
+                              session=SimpleNamespace(write_stream=AsyncMock(side_effect=OSError("closed stream"))),
+                              request_force_finish=Mock())
+        # Regression for pinned CallbackFramework.trigger: it catches ordinary
+        # callback exceptions. The native stop signal must precede even a failed
+        # observation write and survive that exception swallowing.
+        try:
+            await rail.after_model_call(ctx)
+        except Exception:
+            pass
+        result = ctx.request_force_finish.call_args.args[0]
+        self.assertEqual(result["result_type"], "error")
+        self.assertIn("JIUWENSWARM_TOOL_POLICY_VIOLATION", result["output"])
 
     def test_only_non_tool_native_rails_are_built(self):
         adapter = SimpleNamespace()
@@ -151,8 +181,9 @@ class ToolFreeProfileTests(unittest.IsolatedAsyncioTestCase):
         self.assertIs(rail.attachment_manager, agent.prompt_attachment_manager)
         await rail.before_task_iteration(SimpleNamespace(run_kind="user"))
         self.assertEqual(rail.normal_calls, 1)
-        with self.assertRaises(NativeToolPolicyViolation):
-            await rail.before_task_iteration(SimpleNamespace(run_kind="goal"))
+        ctx = SimpleNamespace(run_kind="goal", session=None, request_force_finish=Mock())
+        await rail.before_task_iteration(ctx)
+        self.assertEqual(ctx.request_force_finish.call_args.args[0]["result_type"], "error")
         self.assertEqual(rail.normal_calls, 1)
 
     async def test_toolfree_config_reload_cannot_enable_tools(self):
