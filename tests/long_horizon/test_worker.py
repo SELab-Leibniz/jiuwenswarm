@@ -67,6 +67,30 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
     def metadata(self) -> dict:
         return json.loads((self.root / "stage/metadata.json").read_text())
 
+    async def test_benchmark_absolute_source_mapping_reaches_native_request(self):
+        worker = self.worker("""
+        assert request['input'].endswith('inspect task')
+        assert request['workspace']['cwd'] in request['input']
+        assert 'Preserve existing test files' in request['input']
+        emit(result())
+        """)
+        worker.benchmark_source_root = self.root / 'original-source'
+        await self.run_worker(worker)
+        request = json.loads((self.root / 'stage/request.json').read_text())
+        self.assertIn(str(worker.benchmark_source_root), request['input'])
+        self.assertIn('Keep the original baseline unchanged', request['input'])
+        self.assertEqual(self.metadata()['workspace'], str(self.workspace))
+
+    async def test_workspace_policy_change_refuses_native_session_continuation(self):
+        worker = self.worker('emit(result())')
+        worker.benchmark_source_root = self.root / 'source-one'
+        first = await self.run_worker(worker)
+        worker.benchmark_source_root = self.root / 'source-two'
+        with self.assertRaises(WorkerConfigurationError) as caught:
+            await worker.run(stage='test', prompt='inspect task', workspace=self.workspace,
+                output_dir=self.root / 'second', session_id=first.session_id)
+        self.assertEqual(caught.exception.code, 'CONTINUATION_IDENTITY_MISMATCH')
+
     async def test_native_schema_state_and_readonly_policy(self):
         worker = self.worker("""
         state = pathlib.Path(os.environ['JIUWENSWARM_DATA_DIR'])

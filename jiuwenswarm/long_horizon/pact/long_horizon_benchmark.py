@@ -366,6 +366,7 @@ class LongHorizonBenchmark:
 
     def _resolve_execution(self, workspace: Path) -> Any:
         from .benchmark_native import NativeExecution
+        self._worker.benchmark_source_root = workspace
         return NativeExecution.from_worker(self._worker, self._args.profile_name)
 
     def _frozen_input(self, task_bytes: bytes, output: Path) -> dict[str, object]:

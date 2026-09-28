@@ -496,6 +496,7 @@ class JiuwenWorker:
         self.config_template = Path(config_template).expanduser().resolve()
         self.source_commit = source_commit
         self.default_timeout_seconds = default_timeout_seconds
+        self.benchmark_source_root: Path | None = None
         # Deliberately process-local: no implicit cross-workflow restoration.
         self._sessions: dict[str, _SessionLease] = {}
         self._state_directories: set[Path] = set()
@@ -508,6 +509,7 @@ class JiuwenWorker:
             template = ""
         return {
             "stage": stage, "workspace": str(workspace), "read_only": read_only, "tool_policy": tool_policy,
+            "benchmark_workspace_policy": self.benchmark_workspace_policy,
             "schema_sha256": _object_sha256(schema), "source": _source_identity(self.source_commit, self.binary),
             "config_template_path": str(self.config_template), "config_template_sha256": _sha256(self.config_template),
             # Values (including provider credentials) never enter a receipt.
@@ -517,6 +519,35 @@ class JiuwenWorker:
     @staticmethod
     def _receipt_hashes(output_dir: Path) -> dict[str, str | None]:
         return {name: _sha256(output_dir / name) for name in _RECEIPT_FILES}
+
+    @property
+    def benchmark_workspace_policy(self) -> dict | None:
+        if self.benchmark_source_root is None:
+            return None
+        return {"schema": "jiuwenswarm-benchmark/workspace-policy/v1",
+                "source_root": str(self.benchmark_source_root),
+                "preserve_existing_tests": True, "automatic_path_rewrite": False}
+
+    def _benchmark_prompt(self, prompt: str, workspace: Path, read_only: bool) -> str:
+        if self.benchmark_source_root is None:
+            return prompt
+        source = self.benchmark_source_root
+        instruction = (
+            "Benchmark execution constraints (apply to every tool and subagent):\n"
+            f"The authoritative workspace for this role is {workspace}.\n"
+            f"The original task mentions {source}; it identifies the frozen source baseline. "
+            "Resolve task source paths by their relative path under the authoritative workspace. "
+            "Keep the original baseline unchanged. Do not run writes, git operations, dependency "
+            "installation or build commands against the original baseline. "
+            "All source edits and build outputs belong to this role's workspace.\n"
+            "Preserve existing test files and benchmark/verifier assets. Add public regression "
+            "checks in a separate new checks directory; do not modify or delete existing tests, "
+            "test fixtures, hidden checks or acceptance rules. A failed check is evidence, "
+            "not permission to weaken it.\n"
+        )
+        if read_only:
+            instruction += "This role is read-only: inspect evidence without changing any files.\n"
+        return instruction + "\nOriginal role request follows verbatim:\n" + prompt
 
     async def run(self, *, stage: str, prompt: str, workspace: Path, output_dir: Path,
                   read_only: bool = False, schema: dict | None = None,
@@ -531,6 +562,7 @@ class JiuwenWorker:
         """
         output_dir = Path(output_dir).resolve()
         workspace = Path(workspace).resolve()
+        prompt = self._benchmark_prompt(prompt, workspace, read_only)
         if tool_policy not in ("configured", "none"):
             raise WorkerConfigurationError("Native tool policy must be configured or none.",
                                            code="INVALID_TOOL_POLICY", output_dir=output_dir)

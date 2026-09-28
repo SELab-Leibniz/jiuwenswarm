@@ -29,6 +29,7 @@ class NativeExecution:
         summary = {'schema': 'jiuwenswarm-pact/execution-configuration/v1',
                    'profile_name': profile_name, 'source_commit': worker.source_commit,
                    'router_enabled': False}
+        summary['benchmark_workspace_policy'] = getattr(worker, 'benchmark_workspace_policy', None)
         for name in ('binary', 'config_template'):
             path = Path(getattr(worker, name))
             summary[name + '_sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
