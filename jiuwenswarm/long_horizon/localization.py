@@ -20,6 +20,7 @@ from typing import Any, Protocol
 
 ROLES = ("primary", "propagation", "validation")
 SEARCH_TOOLS = frozenset({"grep", "glob", "list_files"})
+RESPONSE_FORMAT_POLICY = "strict-object-or-unique-json-fence.v1"
 LOCALIZATION_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -98,6 +99,62 @@ def _write(path: Path, payload: Any) -> None:
     from .clarification.compat import atomic_write_owner_only_text
 
     atomic_write_owner_only_text(path, json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True) + "\n")
+
+
+def _strict_json_object(text: str) -> dict[str, Any]:
+    def unique(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        value: dict[str, Any] = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate JSON key in localization response")
+            value[key] = item
+        return value
+
+    def finite_float(text: str) -> float:
+        value = float(text)
+        if not math.isfinite(value):
+            raise ValueError("non-finite JSON number in localization response")
+        return value
+
+    def reject_constant(_text: str) -> None:
+        raise ValueError("non-finite JSON number in localization response")
+
+    value = json.loads(text, object_pairs_hook=unique, parse_float=finite_float, parse_constant=reject_constant)
+    if not isinstance(value, dict):
+        raise ValueError("localization response must be one JSON object")
+    return value
+
+
+def _parse_response(text: str) -> tuple[dict[str, Any], str, str]:
+    """Read a plain object or one explicitly delimited JSON object.
+
+    Chrys 6fcfb332's ``semantic_search/skill/scripts/_localization_agent.py``
+    ``parse_locations`` accepts JSON embedded in prose through a broad regex.
+    This adapter deliberately narrows that compatibility to one complete JSON
+    fence. It never searches prose for arbitrary object/array substrings.
+    Surrounding prose is non-authoritative; structured alternatives and other
+    fences make the response ambiguous and are rejected.
+    """
+    raw = text.strip()
+    try:
+        return _strict_json_object(raw), "json", ""
+    except json.JSONDecodeError:
+        pass
+    markers = list(re.finditer(r"(?m)^[ \t]*(?:`{3,}|~{3,})[^\n]*$", raw))
+    if len(markers) != 2:
+        raise ValueError("localization response requires one complete JSON fence")
+    opening, closing = markers
+    if not re.fullmatch(r"[ ]{0,3}```json[ \t]*\r?", opening.group()):
+        raise ValueError("localization response fence must be labelled json")
+    if not re.fullmatch(r"[ ]{0,3}```[ \t]*\r?", closing.group()):
+        raise ValueError("localization response JSON fence is incomplete")
+    wrapper = raw[:opening.start()] + raw[closing.end():]
+    if any(token in wrapper for token in ("```", "~~~", "{", "}", "[", "]")) or re.search(
+        r'(?i)(?:"(?:locations|summary)"|\b(?:locations|summary))\s*[:=]', wrapper
+    ):
+        raise ValueError("localization response contains a competing structured wrapper")
+    payload = _strict_json_object(raw[opening.end():closing.start()].strip())
+    return payload, "json_fence_with_prose" if wrapper.strip() else "json_fence", wrapper
 
 
 def _relative(value: Any, root: Path) -> str | None:
@@ -234,17 +291,21 @@ def _validate_locations(payload: Any, root: Path, files: Mapping[str, str], obse
 
     if not isinstance(payload, dict) or not isinstance(payload.get("locations"), list):
         raise ValueError("localization response has no locations array")
-    if len(payload["locations"]) > 24 or not isinstance(payload.get("summary"), str):
+    if set(payload) != set(LOCALIZATION_SCHEMA["required"]) or len(payload["locations"]) > 24 or not isinstance(payload.get("summary"), str):
         raise ValueError("localization response does not match its schema")
     locations, rejected, seen = [], [], set()
     for index, item in enumerate(payload["locations"]):
         try:
             if not isinstance(item, dict):
                 raise ValueError("location is not an object")
+            if set(item) != set(LOCALIZATION_SCHEMA["properties"]["locations"]["items"]["required"]):
+                raise ValueError("location fields do not match its schema")
+            if not isinstance(item.get("evidence"), dict) or set(item["evidence"]) != {"quote"}:
+                raise ValueError("location evidence does not match its schema")
             path = _relative(item.get("file_path"), root)
             if path not in files:
                 raise ValueError("path is outside the captured S0 files")
-            if item.get("role") not in ROLES or item.get("confidence") not in {"high", "medium", "low"}:
+            if not isinstance(item.get("role"), str) or item["role"] not in ROLES or not isinstance(item.get("confidence"), str) or item["confidence"] not in {"high", "medium", "low"}:
                 raise ValueError("invalid role or confidence")
             start, end = item.get("start_line"), item.get("end_line")
             lines = (root / path).read_text(encoding="utf-8").splitlines()
@@ -350,10 +411,13 @@ async def localize(
         if _status(worker_result) != "completed" or _get(worker_result, "exit_code", 1) != 0:
             raise ValueError("localization worker did not complete successfully")
         _snapshot_files(snapshot, root)
-        raw = _get(worker_result, "final_text", "").strip()
-        if raw.startswith("```json\n") and raw.endswith("```"):
-            raw = raw[8:-3].strip()
-        payload = json.loads(raw)
+        raw = _get(worker_result, "final_text", "")
+        result.update(response_format="invalid", response_format_policy=RESPONSE_FORMAT_POLICY,
+                      response_sha256=hashlib.sha256(raw.encode("utf-8")).hexdigest())
+        payload, response_format, wrapper = _parse_response(raw)
+        result.update(response_format=response_format, response_wrapper_ignored=bool(wrapper.strip()))
+        if wrapper.strip():
+            result["response_wrapper_sha256"] = hashlib.sha256(wrapper.encode("utf-8")).hexdigest()
         observations = _tool_observations(_get(worker_result, "events", ()))
         locations, warnings = _validate_locations(payload, root, files, observations)
         result.update(locations=locations, warnings=warnings, summary=payload["summary"])

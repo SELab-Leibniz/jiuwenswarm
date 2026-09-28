@@ -49,7 +49,7 @@ class SuiteConfig:
     role_timeout_seconds: float = 3 * 3600
     reserve_seconds: float = 2 * 3600
     cleanup_timeout_seconds: float = 30
-    max_rounds: int = 2
+    max_rounds: int = 3
     require_pact: bool = True
 
 

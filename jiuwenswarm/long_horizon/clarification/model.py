@@ -8,10 +8,13 @@ input, and public-check review is a real Jiuwen worker call on a frozen view.
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 from pydantic import BaseModel
+
+from ..structured import decode_structured_object, parse_unique_json_object
 
 from .budget import SideCallBudgetExhausted, SideCallInterrupted, SideCallIntegrityError
 from .compat import atomic_write_owner_only_text, ensure_owner_only_directory
@@ -38,18 +41,17 @@ ResponseT = TypeVar("ResponseT", bound=BaseModel)
 
 
 def _strict_object(text: str) -> dict:
-    def unique(pairs: list[tuple[str, Any]]) -> dict:
-        result = {}
-        for key, value in pairs:
-            if key in result:
-                raise ValueError(f"duplicate JSON key: {key}")
-            result[key] = value
-        return result
+    return parse_unique_json_object(text)
 
-    value = json.loads(text, object_pairs_hook=unique)
-    if not isinstance(value, dict):
-        raise ValueError("worker final_text must contain exactly one JSON object")
-    return value
+
+def _decoded_value(text: str) -> tuple[dict, dict]:
+    decoded = decode_structured_object(text)
+    return decoded.value, {
+        "format": decoded.format, "object_start": decoded.start, "object_end": decoded.end,
+        "native_final_sha256": hashlib.sha256(text.encode()).hexdigest(),
+        "object_sha256": hashlib.sha256(decoded.object_text.encode()).hexdigest(),
+        "payload_rewritten": False,
+    }
 
 
 def _sum_usage(items: list[dict]) -> dict[str, object]:
@@ -128,12 +130,13 @@ class JiuwenClarificationModel(ClarificationModelRunner):
         prompt += "\n\nReply with exactly one JSON object, no Markdown or prose."
         schema = response_format.model_json_schema()
         errors: list[str] = []
-        # The native machine entrypoint cannot safely resume arbitrary stage state.
+        # This isolated stage adapter does not implement verified same-session continuation.
         # Keep the completed malformed turn as evidence rather than launching a new
         # session and mislabelling it a continuation.
         result = await self._call(stage, prompt, schema=schema)
         try:
-            value = response_format.model_validate(_strict_object(result.final_text))
+            decoded, transport = _decoded_value(result.final_text)
+            value = response_format.model_validate(decoded)
             if require_investigation:
                 calls = investigation_tool_calls(result.events, self.snapshot)
                 errors = _investigation_errors(calls)
@@ -149,6 +152,11 @@ class JiuwenClarificationModel(ClarificationModelRunner):
                     raise ValueError("; ".join(errors))
             if validate is not None:
                 validate(value)
+            self._record(f"accepted-{stage}-{self._sequence:04d}.json", {
+                "schema": "jiuwenswarm/accepted-side-call/v1", "stage": stage,
+                "session_id": result.session_id, "structured_output": transport,
+                "usage": result.usage,
+            })
             return value, _sum_usage([dict(result.usage)])
         except (ValueError, TypeError) as exc:
             self._record(f"rejected-{stage}-{self._sequence:04d}.json", {
@@ -177,6 +185,7 @@ class JiuwenClarificationModel(ClarificationModelRunner):
         errors: list[str] = []
         proposal = None
         references = []
+        transport = None
         attempt = 0
         for attempt in (1,):
             try:
@@ -185,7 +194,8 @@ class JiuwenClarificationModel(ClarificationModelRunner):
                 usages.append(dict(result.usage))
                 events.extend(result.events)
                 calls = investigation_tool_calls(events, self.snapshot)
-                proposal = ClarificationProposal.model_validate(_strict_object(result.final_text))
+                decoded, transport = _decoded_value(result.final_text)
+                proposal = ClarificationProposal.model_validate(decoded)
                 references, reference_errors = verified_evidence(proposal, calls)
                 errors = [*_investigation_errors(calls), *_proposal_errors(proposal, calls), *reference_errors]
                 if not errors:
@@ -213,6 +223,7 @@ class JiuwenClarificationModel(ClarificationModelRunner):
         self._record(f"proposal-{sample_index}.json", {
             "schema": "jiuwenswarm/clarification-native-evidence/v1", "stage": stage,
             "session_id": session_id, "snapshot_id": self.snapshot.snapshot_id,
+            "structured_output": transport,
             "proposal": proposal.model_dump(mode="json") if proposal is not None else None,
             "investigation": investigation.model_dump(mode="json"), "usage": usages,
         })

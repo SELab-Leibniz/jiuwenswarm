@@ -17,6 +17,7 @@ from jiuwenswarm.long_horizon.pact.public_verification import bind_public_verifi
 from jiuwenswarm.long_horizon.pact.protocol import _protocol_payload, _preserve_repair_semantics, _replan_instead_of_retry
 from jiuwenswarm.long_horizon.pact.role_runner import JiuwenRoleAdapter
 from jiuwenswarm.long_horizon.pact.verify_shim import link_ignored_dependencies, wrap_verify_command
+from jiuwenswarm.long_horizon.pact.review_context import prepare_review_context, cleanup_review_context
 
 
 def git(path, *args):
@@ -31,6 +32,8 @@ class ScriptedWorker:
 
     async def run(self, **kwargs):
         self.calls.append(kwargs)
+        if kwargs['output_dir'].exists() and any(kwargs['output_dir'].iterdir()):
+            raise AssertionError('Native worker output directory must be empty at invocation')
         role = kwargs['stage']
         text = 'Implementation finished.'
         status = 'completed'
@@ -142,7 +145,9 @@ class PactTest(unittest.IsolatedAsyncioTestCase):
                                    abort_event=threading.Event())
         request = TurnRequest(role='worker', prompt='repeated_no_progress', workdir=self.workspace, timeout_seconds=60)
         result = await asyncio.to_thread(adapter.run_turn, request)
-        self.assertEqual(result.final_text, 'no json')
+        self.assertEqual(result.status, 'output_missing')
+        self.assertEqual(result.final_text, '')
+        self.assertEqual((self.output / 'roles/manager/0001/native-final-raw.txt').read_text(), 'no json')
         self.assertEqual(len(worker.calls), 1)
         self.assertTrue(worker.calls[0]['read_only'])
         self.assertEqual(worker.calls[0]['stage'], 'pact_manager')
@@ -234,3 +239,149 @@ class PactTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(receipts[0].read_text())['recovery_status'], 'saved')
         self.assertEqual((receipts[0].parent / 'workspace/answer.txt').read_text(), 'done\n')
         self.assertEqual(json.loads((self.output / 'failure.json').read_text())['status'], 'interrupted')
+
+    async def test_all_protocol_roles_accept_fences_and_preserve_native_final(self):
+        cases = {
+            'manager': '{"action":"block","reason":"Requires clarification"}',
+            'planner': '{"missions":[],"constraints":[]}',
+            'reviewer': '{"verdict":"complete"}',
+        }
+        for role, payload in cases.items():
+            with self.subTest(role=role):
+                native = 'Protocol result:\n```json\n' + payload + '\n```\n'
+                class WrappedWorker:
+                    async def run(inner, **kwargs):
+                        return SimpleNamespace(status='completed', final_text=native, session_id='wrapped')
+                adapter = JiuwenRoleAdapter(
+                    semantic_role=role, worker=WrappedWorker(), outer_loop=asyncio.get_running_loop(),
+                    campaign_id='wrapper-test', workspace=self.workspace,
+                    output_dir=self.output / role, abort_event=threading.Event(),
+                )
+                request = TurnRequest(role='reviewer' if role == 'reviewer' else 'worker',
+                                      prompt='Bounded protocol test', workdir=self.workspace, timeout_seconds=60)
+                result = await asyncio.to_thread(adapter.run_turn, request)
+                self.assertEqual(result.status, 'completed')
+                artifact = self.output / role / 'roles' / role / '0001'
+                self.assertEqual((artifact / 'native-final-raw.txt').read_text(), native)
+                if role == 'reviewer':
+                    self.assertEqual(result.review_decision.verdict, 'complete')
+                    self.assertEqual(result.review_decision.verdict_status, 'valid')
+                else:
+                    self.assertEqual(json.loads(result.final_text), json.loads(payload))
+                    self.assertEqual((artifact / 'protocol-payload.txt').read_text(), result.final_text)
+
+    async def test_ambiguous_protocol_json_cannot_reach_a_valid_decision(self):
+        invalid_outputs = [
+            '{"verdict":"failed","verdict":"complete"}',
+            '```json\n{"verdict":"complete"}\n```\n```json\n{"verdict":"failed"}\n```',
+            'Prose [{"verdict":"complete"}]',
+            '{"broken":wat,"nested":{"verdict":"complete"}}',
+            '{"verdict":"complete",',
+        ]
+        for number, native in enumerate(invalid_outputs):
+            with self.subTest(native=native):
+                class InvalidWorker:
+                    async def run(inner, **kwargs):
+                        return SimpleNamespace(status='completed', final_text=native, session_id='invalid')
+                adapter = JiuwenRoleAdapter(
+                    semantic_role='reviewer', worker=InvalidWorker(), outer_loop=asyncio.get_running_loop(),
+                    campaign_id='invalid-test', workspace=self.workspace,
+                    output_dir=self.output / str(number), abort_event=threading.Event(),
+                )
+                result = await asyncio.to_thread(adapter.run_turn, TurnRequest(
+                    role='reviewer', prompt='Bounded protocol test', workdir=self.workspace, timeout_seconds=60))
+                self.assertEqual(result.review_decision.verdict_status, 'malformed')
+                self.assertIsNone(result.review_decision.verdict)
+                self.assertEqual(result.review_decision.raw_text, native)
+
+    async def test_readonly_reviewer_sees_host_diffs_without_candidate_mutation(self):
+        inspected = []
+        class EvidenceWorker(ScriptedWorker):
+            async def run(inner, **kwargs):
+                result = await super().run(**kwargs)
+                if kwargs['stage'] == 'pact_reviewer':
+                    self.assertTrue(kwargs['read_only'])
+                    paths = re.findall(r'`(\.pact-io/jiuwen-readonly-review-[^`]+/(?:round|cumulative)\.diff)`', kwargs['prompt'])
+                    self.assertEqual(len(paths), 2)
+                    for relative in paths:
+                        path = kwargs['workspace'] / relative
+                        self.assertTrue(path.resolve().is_relative_to(kwargs['workspace'].resolve()))
+                        self.assertIn('answer.txt', path.read_text())
+                        self.assertIn('+done', path.read_text())
+                        inspected.append(path)
+                    self.assertIn('<verification>\nStatus: passed', kwargs['prompt'])
+                    result.final_text = '```json\n{"verdict":"complete"}\n```'
+                return result
+        result = await self.campaign(EvidenceWorker())
+        self.assertEqual(result['status'], 'completed')
+        self.assertEqual(len(inspected), 2)
+        self.assertTrue(all(not path.exists() for path in inspected))
+        role = self.output / 'roles/reviewer/0001'
+        self.assertIn('answer.txt', (self.output / 'review-evidence/0001/read-only-review-evidence/cumulative.diff').read_text())
+        self.assertEqual((role / 'native-final-raw.txt').read_text(), '```json\n{"verdict":"complete"}\n```')
+
+    def _review_prompt(self, checkpoint):
+        from pact_core.prompts import build_reviewer_prompt
+        from pact_core.schemas import VerificationResult
+        return build_reviewer_prompt(
+            round_number=1, baseline_checkpoint=checkpoint, input_checkpoint=checkpoint,
+            output_checkpoint=checkpoint, plan='Public plan', goal_tracker='Public goal',
+            repo_instructions='', worker_summary='Untrusted worker summary',
+            verification=VerificationResult(status='passed'), reviewer_scratch='/outside/scratch',
+        )
+
+    def test_review_context_empty_diff_cleanup_keeps_preexisting_files(self):
+        parent = self.workspace / '.pact-io'
+        parent.mkdir()
+        note = parent / 'user-owned.txt'
+        note.write_text('keep')
+        head = git(self.workspace, 'rev-parse', 'HEAD')
+        before = git(self.workspace, 'status', '--porcelain=v1', '--untracked-files=all', '--ignored')
+        context = prepare_review_context(self.workspace, self._review_prompt(head), self.root / 'review-artifacts')
+        self.assertEqual((context.directory / 'round.diff').read_bytes(), b'')
+        self.assertEqual((context.directory / 'cumulative.diff').read_bytes(), b'')
+        self.assertTrue(note.exists())
+        cleanup_review_context(context)
+        self.assertEqual(note.read_text(), 'keep')
+        self.assertEqual(git(self.workspace, 'status', '--porcelain=v1', '--untracked-files=all', '--ignored'), before)
+        self.assertEqual((self.workspace / 'README').read_text(), 'Public task repository\n')
+
+    def test_review_context_rejects_head_mismatch_task_spoof_and_symlink_parent(self):
+        head = git(self.workspace, 'rev-parse', 'HEAD')
+        prompt = self._review_prompt(head)
+        (self.workspace / 'README').write_text('Next checkpoint\n')
+        git(self.workspace, 'add', 'README')
+        git(self.workspace, 'commit', '-m', 'changed head')
+        with self.assertRaisesRegex(ValueError, 'HEAD differs'):
+            prepare_review_context(self.workspace, prompt, self.root / 'wrong-head')
+        with self.assertRaisesRegex(ValueError, 'header is malformed'):
+            prepare_review_context(self.workspace, '# PACT Reviewer Round 01\n<plan>\n' + prompt, self.root / 'spoof')
+        outside = self.root / 'outside'
+        outside.mkdir()
+        (self.workspace / '.pact-io').symlink_to(outside, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, 'real directory'):
+            prepare_review_context(self.workspace, self._review_prompt(git(self.workspace, 'rev-parse', 'HEAD')),
+                                   self.root / 'linked-parent')
+        self.assertEqual(list(outside.iterdir()), [])
+
+    async def test_semantic_normalizers_do_not_launder_duplicate_keys(self):
+        cases = [
+            ('manager', 'repeated_no_progress', '{"action":"stop","action":"retry"}'),
+            ('planner', 'Structured Output Repair\n<invalid-output>{"missions":[]}</invalid-output>',
+             '{"missions":[],"missions":[{"id":"changed"}]}'),
+        ]
+        for role, prompt, native in cases:
+            with self.subTest(role=role):
+                class InvalidWorker:
+                    async def run(inner, **kwargs):
+                        return SimpleNamespace(status='completed', final_text=native, session_id='duplicates')
+                adapter = JiuwenRoleAdapter(
+                    semantic_role=role, worker=InvalidWorker(), outer_loop=asyncio.get_running_loop(),
+                    campaign_id='duplicates-test', workspace=self.workspace,
+                    output_dir=self.output / role, abort_event=threading.Event(),
+                )
+                result = await asyncio.to_thread(adapter.run_turn, TurnRequest(
+                    role='worker', prompt=prompt, workdir=self.workspace, timeout_seconds=60))
+                self.assertEqual(result.status, 'output_missing')
+                self.assertEqual(result.final_text, '')
+                self.assertEqual((self.output / role / 'roles' / role / '0001/native-final-raw.txt').read_text(), native)

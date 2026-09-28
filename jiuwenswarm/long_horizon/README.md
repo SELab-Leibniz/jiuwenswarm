@@ -45,6 +45,9 @@ P0/repair 各有 6 小时基础预算，澄清及 PACT 输入各有 2 小时，P
 上限约束。不会通过重新启动阶段伪装续跑。超时、输出预算耗尽、取消或
 信号中断会保留真实会话、候选补丁、Git bundle 和阶段凭据。
 
+PACT 每个 mission 最多 3 个 Worker/Reviewer 回合，与固定 ChrysPact profile
+一致；这一上限不替代完整 campaign 的时间预算。
+
 输出耗尽根据原生流中的实际 usage/finish reason 事件识别，随后终止所属
 进程组。这不保证复现 Chrys 内部在 validator/tool 之前暂停的精确时序；
 此类未完成尝试不会进入独立判分。

@@ -99,7 +99,7 @@ def archive_public_evidence(*, workspace: Path, output_dir: Path,
 
 async def run_campaign(worker: Any, workspace: Path, contract_path: Path,
                        plan_path: Path, public_verification_path: Path,
-                       output_dir: Path, max_rounds: int = 2,
+                       output_dir: Path, max_rounds: int = 3,
                        role_timeout_seconds: float = 10800, *,
                        control_plane: Any = None) -> dict:
     """Run one fresh campaign; budget suspension preserves the candidate then raises.

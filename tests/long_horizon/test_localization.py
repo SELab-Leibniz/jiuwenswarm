@@ -32,18 +32,20 @@ def _events(path="src/logic.py", *, success=True, read=True, search=True):
 
 
 class FakeWorker:
-    def __init__(self, *, locations=None, events=None, status="completed", mutate=None):
+    def __init__(self, *, locations=None, events=None, status="completed", mutate=None, final_text=None):
         self.locations = [_location()] if locations is None else locations
         self.events = _events() if events is None else events
         self.status = status
         self.mutate = mutate
+        self.final_text = final_text
         self.calls = []
 
     async def run(self, **kwargs):
         self.calls.append(kwargs)
         if self.mutate:
             self.mutate(kwargs)
-        return SimpleNamespace(final_text=json.dumps({"summary": "Inspected increment entry point.", "locations": self.locations}), events=self.events, session_id="native-session-1", usage={"output_tokens": 11}, status=self.status, exit_code=0)
+        text = self.final_text if self.final_text is not None else json.dumps({"summary": "Inspected increment entry point.", "locations": self.locations})
+        return SimpleNamespace(final_text=text, events=self.events, session_id="native-session-1", usage={"output_tokens": 11}, status=self.status, exit_code=0)
 
 
 class LocalizationTests(unittest.IsolatedAsyncioTestCase):
@@ -80,6 +82,81 @@ class LocalizationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(worker.calls[0]["read_only"])
         self.assertEqual(self.root, worker.calls[0]["workspace"])
         self.assertTrue((self.base / "out/localization.json").is_file())
+
+    async def test_real_v2_shape_accepts_unique_fence_and_preserves_original_hash(self):
+        payload = json.dumps({"locations": [_location()], "summary": "All workspace files inspected."}, indent=2)
+        text = "  All workspace files inspected. The repository is a minimal fixture: `src/logic.py`.\r\n\r\n```json\r\n" + payload.replace("\n", "\r\n") + "\r\n```\r\n "
+        worker = FakeWorker(final_text=text)
+        result = await self._run(worker)
+        self.assertEqual("completed", result["status"], result["warnings"])
+        self.assertEqual("json_fence_with_prose", result["response_format"])
+        self.assertTrue(result["response_wrapper_ignored"])
+        self.assertEqual(hashlib.sha256(text.encode()).hexdigest(), result["response_sha256"])
+        self.assertEqual(text, worker.final_text)
+
+    async def test_plain_object_with_literal_backticks_remains_plain_json(self):
+        text = json.dumps({"locations": [_location()], "summary": "Literal ``` is ordinary JSON string content."})
+        result = await self._run(FakeWorker(final_text=text))
+        self.assertEqual("completed", result["status"])
+        self.assertEqual("json", result["response_format"])
+
+    async def test_whole_response_json_fence_remains_supported(self):
+        payload = json.dumps({"locations": [_location()], "summary": "Inspected."})
+        result = await self._run(FakeWorker(final_text=f"```json\n{payload}\n```"))
+        self.assertEqual("completed", result["status"])
+        self.assertEqual("json_fence", result["response_format"])
+        self.assertFalse(result["response_wrapper_ignored"])
+
+    async def test_ambiguous_malformed_and_conflicting_fences_are_rejected(self):
+        payload = json.dumps({"locations": [_location()], "summary": "Inspected."})
+        fence = f"```json\n{payload}\n```"
+        invalid = [
+            fence + "\n" + fence,
+            fence + "\n```json\n",
+            fence + "\n```python\npass\n```",
+            "```json\n" + payload,
+            "```json\n" + payload + "\n``` trailing garbage",
+            "```json\n{broken}\n```",
+            fence + '\nAlternative: {"locations": [], "summary": "Other"}',
+            fence + "\nCorrection: locations should be []",
+            fence + '\nsummary: "Different result"',
+            "Unfenced prose " + payload,
+        ]
+        for text in invalid:
+            with self.subTest(text=text):
+                result = await self._run(FakeWorker(final_text=text))
+                self.assertEqual("degraded", result["status"])
+                self.assertEqual([], result["locations"])
+                self.assertEqual("invalid", result["response_format"])
+
+    async def test_duplicate_keys_and_nonfinite_numbers_are_rejected(self):
+        payload = json.dumps({"locations": [_location()], "summary": "Inspected."})
+        invalid = [
+            payload.replace('"summary": "Inspected."', '"summary": "A", "summary": "B"'),
+            payload.replace('"role": "primary"', '"role": "validation", "role": "primary"'),
+            payload.replace('"quote": "return value + 1"', '"quote": "wrong", "quote": "return value + 1"'),
+            *(payload.replace('"start_line": 1', '"start_line": ' + number) for number in ("NaN", "Infinity", "-Infinity", "1e999")),
+        ]
+        for text in invalid:
+            for wrapped in (text, f"Inspection complete.\n```json\n{text}\n```"):
+                with self.subTest(text=wrapped):
+                    result = await self._run(FakeWorker(final_text=wrapped))
+                    self.assertEqual("degraded", result["status"])
+                    self.assertEqual([], result["locations"])
+
+    async def test_fenced_format_does_not_relax_schema_or_tool_evidence(self):
+        valid = {"locations": [_location()], "summary": "Inspected."}
+        for payload in ({**valid, "extra": True}, {**valid, "locations": [{**_location(), "extra": True}]},
+                        {**valid, "locations": [{**_location(), "evidence": {"quote": "return value + 1", "extra": True}}]},
+                        {**valid, "locations": [{**_location(), "confidence": ["high"]}]}):
+            text = "Inspection complete.\n```json\n" + json.dumps(payload) + "\n```"
+            result = await self._run(FakeWorker(final_text=text))
+            self.assertEqual("degraded", result["status"])
+            self.assertEqual([], result["locations"])
+        text = "Inspection complete.\n```json\n" + json.dumps(valid) + "\n```"
+        result = await self._run(FakeWorker(final_text=text, events=[]))
+        self.assertEqual("degraded", result["status"])
+        self.assertEqual([], result["locations"])
 
     async def test_every_role_has_evidence_and_paths_are_relative(self):
         locations = [_location(), _location(role="propagation"), _location("tests/test_logic.py", "validation")]
@@ -135,6 +212,34 @@ class LocalizationTests(unittest.IsolatedAsyncioTestCase):
         read["rendered_result"] = "     1\tdef increment(value):\n     2\t    return value + 1"
         read["success"] = False
         result = await self._run(FakeWorker(events=events))
+        self.assertEqual([], result["locations"])
+
+    async def test_native_targeted_read_binds_repeated_source_to_actual_line_number(self):
+        source = "def first():\n    return value + 1\n\ndef second():\n    return value + 1\n"
+        (self.root / "src/logic.py").write_text(source)
+        next(entry for entry in self.snapshot.roots[0].entries if entry.relative_path == "src/logic.py").content_hash = hashlib.sha256(source.encode()).hexdigest()
+        events = _events()
+        events[2]["payload"]["tool_call"]["arguments"] = json.dumps({"file_path": "src/logic.py", "offset": 5, "limit": 1})
+        read = events[3]["payload"]["tool_result"]
+        read["result"] = "success=True data={'content': '     5\\t    return value + 1'} error=None"
+        read["rendered_result"] = "     5\t    return value + 1"
+        actual = {**_location(), "start_line": 5, "end_line": 5}
+        result = await self._run(FakeWorker(locations=[actual], events=events))
+        self.assertEqual("completed", result["status"], result["warnings"])
+        earlier_duplicate = {**actual, "start_line": 2, "end_line": 2}
+        result = await self._run(FakeWorker(locations=[earlier_duplicate], events=events))
+        self.assertEqual([], result["locations"])
+
+    async def test_native_mismatched_line_number_does_not_prove_repeated_source(self):
+        source = "def first():\n    return value + 1\n\ndef second():\n    return value + 1\n"
+        (self.root / "src/logic.py").write_text(source)
+        next(entry for entry in self.snapshot.roots[0].entries if entry.relative_path == "src/logic.py").content_hash = hashlib.sha256(source.encode()).hexdigest()
+        events = _events()
+        read = events[3]["payload"]["tool_result"]
+        read["result"] = "success=True data={'content': '     4\\t    return value + 1'} error=None"
+        read["rendered_result"] = "     4\t    return value + 1"
+        candidate = {**_location(), "start_line": 2, "end_line": 2}
+        result = await self._run(FakeWorker(locations=[candidate], events=events))
         self.assertEqual([], result["locations"])
 
     async def test_outside_snapshot_and_unseen_files_are_rejected(self):

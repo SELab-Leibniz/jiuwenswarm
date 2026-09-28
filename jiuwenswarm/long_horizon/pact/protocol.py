@@ -11,19 +11,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-
-def _json_object_candidates(text: str):
-    """Extract complete JSON objects without repairing the model's decisions."""
-    decoder = json.JSONDecoder()
-    for position, character in enumerate(text):
-        if character != "{":
-            continue
-        try:
-            value, end = decoder.raw_decode(text, position)
-        except ValueError:
-            continue
-        if isinstance(value, dict):
-            yield text[position:end]
+from ..structured import parse_unique_json_object
 
 
 _FENCED_WHOLE = re.compile(r"\A\s*```[A-Za-z0-9_+-]*[ \t]*\r?\n(.*?)\r?\n[ \t]*```\s*\Z", re.DOTALL)
@@ -321,36 +309,25 @@ def _campaign_context(workdir: Path, role: str = "worker") -> str:
 
 def _is_json_object(text: str) -> bool:
     try:
-        return isinstance(json.loads(text), dict)
+        parse_unique_json_object(text)
     except ValueError:
         return False
+    return True
 
 
 def _protocol_payload(text: str) -> str:
-    """The JSON object a Manager or Planner reply carries, wherever the model put it.
+    """Unwrap one complete protocol object without selecting an ambiguous fragment.
 
-    The protocols want a bare object. Models return it inside a fence, after a
-    paragraph of reasoning, or both -- a Manager that wrote "The campaign is
-    genuinely blocked: …" and then the correct decision in a ```json block was
-    rejected as "not valid JSON", and the campaign ended. A reply with no JSON
-    object at all is returned as it is, so the runtime's own repair pass still
-    sees what the model said.
+    The original Chrys PACT seam accepts fences and prose around JSON. Use the
+    shared strict transport decoder for these same forms, without repairing
+    payload bytes. Invalid text stays available for diagnostics; role adapters
+    must reject it before pact-core's less-strict JSON decoder can accept it.
     """
-    stripped = _unfenced(text).strip()
     try:
-        json.loads(stripped)
+        payload = parse_unique_json_object(text)
     except ValueError:
-        pass
-    else:
-        return stripped
-    for candidate in _json_object_candidates(text):
-        try:
-            payload = json.loads(candidate)
-        except (ValueError, RecursionError):
-            continue
-        if isinstance(payload, dict):
-            return json.dumps(payload)
-    return text
+        return text
+    return json.dumps(payload, ensure_ascii=False, allow_nan=False)
 
 
 def _unfenced(text: str) -> str:

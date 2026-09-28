@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .budget import RoleBudgetExhausted, preserve_role_budget
+from .review_context import cleanup_review_context, prepare_review_context
 from .protocol import (
     _ROLE_PROTOCOL_REMINDERS, _campaign_context,
     _is_json_object, _preserve_repair_semantics, _protocol_payload,
@@ -110,6 +111,10 @@ class JiuwenRoleAdapter:
 
     def _normalize(self, prompt: str, final_text: str) -> str:
         final_text = _protocol_payload(final_text)
+        if not _is_json_object(final_text):
+            # Do not let legacy semantic helpers' json.loads collapse duplicate
+            # keys or repair an ambiguous transport into an accepted decision.
+            return final_text
         if self.semantic_role == 'planner':
             final_text = _preserve_repair_semantics(prompt, final_text)
             # Governance roles execute in a PACT scratch directory, so read
@@ -165,15 +170,25 @@ class JiuwenRoleAdapter:
         session_id = None
         status = 'spawn_failed'
         budget_detail = None
+        review_context = None
         try:
+            if self.semantic_role == 'reviewer':
+                review_context = await asyncio.to_thread(
+                    prepare_review_context, request.workdir, request.prompt,
+                    self.output_dir / 'review-evidence' / f'{sequence:04d}',
+                )
+                if review_context is not None:
+                    prompt += review_context.prompt
             result = await self._call_worker(request, prompt, directory)
             session_id = result.session_id
             status = result.status
             final_text = result.final_text
+            (directory / 'native-final-raw.txt').write_text(final_text, encoding='utf-8')
             if status == 'completed' and not final_text.strip():
                 status = 'output_missing'
             if status in ('completed', 'output_missing') and self.semantic_role in ('planner', 'manager'):
                 final_text = self._normalize(prompt, final_text)
+                (directory / 'protocol-payload.txt').write_text(final_text, encoding='utf-8')
                 if not _is_json_object(final_text):
                     # Native worker calls are separate subprocess states. Do
                     # not replay a fresh session and call it continuation.
@@ -182,6 +197,8 @@ class JiuwenRoleAdapter:
                         'status': 'missing_json', 'semantic_role': self.semantic_role,
                         'continuation': 'unsupported', 'final_text': final_text,
                     }, indent=2) + '\n')
+                    status = 'output_missing'
+                    diagnostic = 'Role final response did not contain one unambiguous complete JSON object'
         except asyncio.CancelledError:
             recovery = await asyncio.to_thread(
                 preserve_role_budget, campaign_id=self.campaign_id, role=self.semantic_role,
@@ -198,11 +215,16 @@ class JiuwenRoleAdapter:
             session_id = getattr(result, 'session_id', None)
             status = getattr(result, 'status', 'spawn_failed')
             diagnostic = f'{type(error).__name__}: {error}'[-4000:]
+            native_final = getattr(result, 'final_text', None)
+            if isinstance(native_final, str):
+                (directory / 'native-final-raw.txt').write_text(native_final, encoding='utf-8')
             # Typed worker exceptions have already saved process/session data.
             if 'BudgetExhausted' in type(error).__name__:
                 budget_detail = diagnostic
             elif 'Timeout' in type(error).__name__:
                 budget_detail = diagnostic
+        finally:
+            await asyncio.to_thread(cleanup_review_context, review_context)
         if status in ('budget_exhausted', 'timed_out', 'timeout') or budget_detail:
             suspension = await asyncio.to_thread(
                 preserve_role_budget, campaign_id=self.campaign_id,
@@ -233,7 +255,14 @@ class JiuwenRoleAdapter:
             if request.artifact_dir is not None:
                 request.artifact_dir.mkdir(parents=True, exist_ok=True)
                 (request.artifact_dir / 'reviewer-decision-raw.txt').write_text(raw, encoding='utf-8')
-            capture = parse_review_decision(raw, existed=bool(raw.strip()))
+            if _is_json_object(raw):
+                capture = parse_review_decision(raw, existed=bool(raw.strip()))
+            else:
+                capture = ReviewDecisionCapture(
+                    verdict_status='malformed' if raw.strip() else 'missing',
+                    plan_challenge_status='unavailable', raw_text=raw,
+                    error='Reviewer final response did not contain one unambiguous complete JSON object',
+                )
             if status != 'completed' and capture.verdict_status == 'valid':
                 capture = ReviewDecisionCapture(
                     verdict_status='malformed', plan_challenge_status='unavailable', raw_text=raw,

@@ -199,6 +199,19 @@ def test_numbered_read_does_not_accept_changed_indent_or_unread_gaps():
     assert _observed_lines(source, "     2:     return 1") == (2, 2)
 
 
+def test_native_numbered_read_binds_repeated_content_to_exact_line():
+    source = "header\n    return value\nseparator\nfooter\n    return value\n"
+    assert _observed_lines(source, "     5\t    return value") == (5, 5)
+    assert _observed_lines(source, "     4\t    return value") is None
+    assert _observed_lines(source, "     0\t    return value") is None
+    assert _observed_lines(source, "     6\t    return value") is None
+    # A raw duplicate elsewhere in the event cannot undo a failed native claim.
+    assert _observed_lines(source, "     4\t    return value\n    return value") is None
+    assert _observed_lines(source, "     5:     return value") == (5, 5)
+    # Retain legacy unnumbered matching only for wholly unnumbered output.
+    assert _observed_lines(source, "    return value") == (2, 2)
+
+
 def test_budget_exhaustion_does_not_enter_evidence_retry(frozen, tmp_path):
     _, snapshot = frozen
     worker = FixtureWorker(status="budget_exhausted")
@@ -255,8 +268,9 @@ def test_bound_public_inputs_are_hash_checked_and_never_overwritten(tmp_path):
 def test_snapshot_blob_tamper_is_rejected_before_restore(frozen):
     repo, snapshot = frozen
     (repo / "src/api.py").write_text("retained candidate\n")
-    blobs = list((Path(snapshot.artifact_root) / "blobs").rglob("*"))
-    target = next(path for path in blobs if path.is_file())
+    # Target a file that restore consumes, not the independently archived Git
+    # index (which file-only restore deliberately does not touch).
+    target = Path(snapshot.artifact_root) / "blobs" / snapshot.roots[0].entries[0].content_hash
     target.write_bytes(b"tampered snapshot")
     with pytest.raises(OSError):
         WorkspaceSnapshotter().restore(snapshot)
@@ -278,7 +292,8 @@ def test_worker_mutation_of_frozen_view_stops_clarification(frozen, tmp_path):
         asyncio.run(model.propose("Change value safely", sample_index=1))
 
 
-def test_public_checks_receive_fresh_per_criterion_generation_and_review(frozen, tmp_path):
+@pytest.mark.parametrize("fenced", [False, True])
+def test_public_checks_receive_fresh_per_criterion_generation_and_review(frozen, tmp_path, fenced):
     _, snapshot = frozen
 
     class PublicWorker(FixtureWorker):
@@ -289,6 +304,8 @@ def test_public_checks_receive_fresh_per_criterion_generation_and_review(frozen,
                 "reason": "The frozen public test covers this API criterion.", "checks": [{"id": "check",
                     "command": "python -m pytest tests/test_api.py", "target_ac_ids": [criterion],
                     "rationale": "Check existing public behavior."}]})
+            if fenced:
+                result.final_text = "```json\n" + result.final_text + "\n```"
             return result
 
     worker = PublicWorker()
@@ -303,6 +320,10 @@ def test_public_checks_receive_fresh_per_criterion_generation_and_review(frozen,
     assert all(call["session_id"] is None and call["read_only"] for call in worker.calls)
     assert {check.id for check in verification.checks} == {"ac1-check1", "ac2-check1"}
     assert usage["input_tokens"] == 40
+    receipts = [json.loads(path.read_text()) for path in (tmp_path / "model").glob("accepted-*.json")]
+    assert len(receipts) == 4
+    assert all(record["structured_output"]["format"] == ("json_fence" if fenced else "json") for record in receipts)
+    assert all(record["structured_output"]["payload_rewritten"] is False for record in receipts)
 
 
 def test_public_verifier_cannot_name_uninspected_public_tests(frozen, tmp_path):

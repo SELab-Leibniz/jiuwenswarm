@@ -104,18 +104,28 @@ def _relative_path(value: str, root: Path) -> tuple[str, Path] | None:
 def _observed_lines(source: str, result: str) -> tuple[int, int] | None:
     """Require source bytes in an actual read result, allowing line-number prefixes."""
     source_lines = source.splitlines()
-    output_lines = set(result.splitlines())
     # Native read_file emits a padded line number, one tab, then the exact
     # source line. Whitespace after that tab belongs to the source: removing
     # even one character rejects every indented Python line. Other renderers
     # use a colon/pipe/arrow with one optional presentation space.
+    numbered_lines: list[tuple[int, str]] = []
     for line in result.splitlines():
-        numbered = re.match(r"^[ \t]*\d+ *\t(.*)$", line)
+        numbered = re.match(r"^[ \t]*(\d+) *\t(.*)$", line)
         if numbered is None:
-            numbered = re.match(r"^[ \t]*\d+[ \t]*[:|→] ?(.*)$", line)
+            numbered = re.match(r"^[ \t]*(\d+)[ \t]*[:|→] ?(.*)$", line)
         if numbered is not None:
-            output_lines.add(numbered.group(1))
-    matched = [index for index, line in enumerate(source_lines, 1) if line.strip() and line in output_lines]
+            numbered_lines.append((int(numbered.group(1)), numbered.group(2)))
+    if numbered_lines:
+        # A native line number is evidence for that exact source position, not
+        # every identical source line. Never fall back to stripped/plain text
+        # when numbered output exists, even when its claimed positions fail.
+        matched = sorted({number for number, content in numbered_lines
+                          if 1 <= number <= len(source_lines)
+                          and content.strip() and source_lines[number - 1] == content})
+    else:
+        output_lines = set(result.splitlines())
+        matched = [index for index, line in enumerate(source_lines, 1)
+                   if line.strip() and line in output_lines]
     if not matched:
         return None
     # Do not convert disjoint returned snippets into a claim that intervening
