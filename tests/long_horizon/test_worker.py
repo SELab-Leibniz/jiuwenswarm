@@ -18,7 +18,7 @@ from jiuwenswarm.channels.process_cli.protocol.model import OneShotRunInput
 from jiuwenswarm.long_horizon.worker import (
     BASE_COMMIT, JiuwenWorker, READ_ONLY_TOOLS, WorkerBudgetExhaustedError,
     WorkerConfigurationError, WorkerExecutionError, WorkerProtocolError,
-    WorkerTimeoutError, normalize_tool_events,
+    WorkerTimeoutError, normalize_tool_events, select_native_final_response,
 )
 
 
@@ -101,6 +101,40 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
     async def test_normal_stage_uses_native_default_agent(self):
         worker = self.worker("assert 'agent' not in request\nemit(result())\n")
         await self.run_worker(worker)
+
+    async def test_upstream_base_is_separate_from_actual_fork_commit(self):
+        worker = self.worker("emit(result())")
+        fork_sha = "a" * 40
+        worker.source_commit = fork_sha
+        with patch.dict(os.environ, {"JIUWENSWARM_AGENT_COMMIT": fork_sha}):
+            await self.run_worker(worker)
+        source = self.metadata()["source"]
+        self.assertEqual(source["base_commit"], BASE_COMMIT)
+        self.assertEqual(source["implementation_source_commit"], fork_sha)
+        self.assertEqual(source["declared_source_commit"], fork_sha)
+
+    async def test_final_segment_not_run_commentary_drives_structured_response(self):
+        # Shape observed in synthetic v1: one output phase spans commentary,
+        # tools and JSON deltas; final_mode explicitly identifies the last segment.
+        worker = self.worker("""
+        emit(event(kind='chat.output_phase', payload={'output_phase_id':'phase'}))
+        emit(event(sequence=1, kind='chat.delta', payload={'content':"I'll inspect the frozen repository."}))
+        emit(event(sequence=2, kind='chat.tool_call', payload={'tool_call':{'tool_call_id':'read1','name':'read_file','arguments':{'file_path':'cache.py'}}}))
+        emit(event(sequence=3, kind='chat.tool_result', payload={'tool_result':{'tool_call_id':'read1','tool_name':'read_file','success':True,'result':'fixture bytes'}}))
+        emit(event(sequence=4, kind='chat.delta', payload={'content':'{"ok":'}))
+        emit(event(sequence=5, kind='chat.delta', payload={'content':'true}'}))
+        emit(event(sequence=6, kind='chat.final', payload={'content':'{"ok":true}', 'final_mode':'patch_segment', 'output_phase_id':'phase', 'execution_id':'execution'}))
+        emit(event(sequence=7, kind='chat.usage_summary', payload={'usage':{'output_tokens':7}}))
+        emit(result(sequence=8, output='I will inspect the frozen repository.{"ok":true}'))
+        """)
+        result = await self.run_worker(worker, schema={"type": "object"})
+        self.assertEqual(json.loads(result.final_text), {"ok": True})
+        terminal = json.loads((self.root / "stage/terminal-result.json").read_text())
+        self.assertTrue(terminal["output"].startswith("I will inspect"))
+        selected = json.loads((self.root / "stage/final-response.json").read_text())
+        self.assertEqual(selected["text"], '{"ok":true}')
+        self.assertEqual(selected["native_sequence"], 6)
+        self.assertEqual(self.metadata()["final_response"]["source"], "native_chat_final")
 
     async def test_native_config_rewrite_has_distinct_archived_hash(self):
         worker = self.worker("""
@@ -274,6 +308,54 @@ class ToolNormalizationTests(unittest.TestCase):
         result = self.native("tool_result", {"tool_call_id": "1", "tool_name": "read_file",
                                             "success": True, "is_error": True, "result": "text"})
         self.assertFalse(normalize_tool_events([result])[0]["success"])
+
+
+class FinalResponseBoundaryTests(unittest.TestCase):
+    def final(self, content: str, *, mode="patch_segment", **fields) -> dict:
+        return {"type": "event", "sequence": 3, "event_type": "chat.final",
+                "payload": {"content": content, "final_mode": mode, **fields}}
+
+    def select(self, records: list[dict], aggregate: str = 'earlier commentary{"ok":true}'):
+        return select_native_final_response(records, {"type": "result", "sequence": 9,
+                                                     "status": "completed", "output": aggregate})
+
+    def test_modes_select_complete_final_message_verbatim(self):
+        for mode in ("patch_segment", "replace_turn", "append"):
+            with self.subTest(mode=mode):
+                text, source = self.select([self.final('  {"ok":true}\n', mode=mode)])
+                self.assertEqual(text, '  {"ok":true}\n')
+                self.assertEqual(source["source"], "native_chat_final")
+
+    def test_never_extracts_json_substring_or_strips_markdown(self):
+        for text in ('Here is the result: {"ok":true}', '```json\n{"ok":true}\n```'):
+            selected, _ = self.select([self.final(text)])
+            self.assertEqual(selected, text)
+            with self.assertRaises(json.JSONDecodeError):
+                json.loads(selected)
+
+    def test_does_not_choose_earlier_json_final_over_later_message(self):
+        selected, _ = self.select([self.final('{"ok":true}'), self.final("Actually, this is unresolved.")])
+        self.assertEqual(selected, "Actually, this is unresolved.")
+
+    def test_missing_or_unknown_final_mode_keeps_terminal_contract(self):
+        for mode in (None, "unknown"):
+            selected, source = self.select([self.final('"tail"', mode=mode)], '"head-and-tail"')
+            self.assertEqual(selected, '"head-and-tail"')
+            self.assertEqual(source["source"], "native_terminal_aggregate")
+
+    def test_empty_control_final_and_suppressed_output_are_not_selected(self):
+        for last in (self.final(""), self.final('{"ok":true}', output_suppressed=True)):
+            selected, source = self.select([self.final('{"earlier":true}'), last])
+            self.assertTrue(selected.startswith("earlier commentary"))
+            self.assertEqual(source["source"], "native_terminal_aggregate")
+
+    def test_later_execution_or_text_prevents_dropping_the_tail(self):
+        for kind, payload in (("chat.delta", {"content": "but not finished"}),
+                              ("chat.tool_call", {}), ("chat.output_phase", {})):
+            selected, source = self.select([self.final('{"ok":true}'),
+                                            {"type": "event", "event_type": kind, "payload": payload}])
+            self.assertTrue(selected.startswith("earlier commentary"))
+            self.assertEqual(source["source"], "native_terminal_aggregate")
 
 
 if __name__ == "__main__":

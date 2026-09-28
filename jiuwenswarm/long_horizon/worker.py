@@ -228,10 +228,11 @@ def _sha256(path: Path) -> str | None:
     return digest.hexdigest()
 
 
-def _source_identity(base_commit: str, binary: Path) -> dict:
+def _source_identity(source_commit: str, binary: Path) -> dict:
     root = Path(__file__).resolve().parents[2]
     identity = {
-        "base_commit": base_commit, "adapter_sha256": _sha256(Path(__file__)),
+        "base_commit": BASE_COMMIT, "implementation_source_commit": source_commit,
+        "adapter_sha256": _sha256(Path(__file__)),
         "native_entry_sha256": _sha256(Path(__file__).with_name("native_entry.py")),
         "binary_path": str(binary), "binary_sha256": _sha256(binary),
         "checkout_commit": None, "checkout_dirty": None,
@@ -316,6 +317,55 @@ def _partial_summary(records: list[dict]) -> tuple[str, dict, str]:
                             and isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0):
                         usage[key] = usage.get(key, 0) + value
     return "".join(text_parts), usage, session
+
+
+def select_native_final_response(records: list[dict], terminal: dict) -> tuple[str, dict]:
+    """Select a native final message, without searching its text for JSON.
+
+    At the pinned revision, ``RunSummary.output`` concatenates every delta in
+    the run, including commentary before tool calls. It is therefore a run
+    transcript, not necessarily the final assistant message. Native
+    ``chat.final.final_mode`` is the authoritative message-boundary contract
+    (``jiuwenswarm.common.chat_final``): patch_segment replaces the current
+    tool-separated segment, replace_turn replaces the turn, and append adds
+    a final segment. Keep that complete final content verbatim.
+
+    Older/ambiguous streams retain their terminal aggregate unchanged; no
+    substring, brace matching, Markdown stripping or JSON-aware selection is
+    performed. Empty finals can be synthetic stream-end controls, and later
+    assistant/tool activity invalidates selection of an earlier message.
+    """
+    aggregate = terminal.get("output") or ""
+    provenance = {"source": "native_terminal_aggregate", "native_sequence": terminal.get("sequence")}
+    if terminal.get("status") != "completed":
+        return aggregate, provenance
+    finals = [(index, record) for index, record in enumerate(records)
+              if record.get("type") == "event" and record.get("event_type") == "chat.final"]
+    if not finals:
+        return aggregate, provenance
+    index, final = finals[-1]
+    payload = final.get("payload")
+    if not isinstance(payload, dict):
+        return aggregate, provenance
+    mode = payload.get("final_mode")
+    content = payload.get("content")
+    if (mode not in {"patch_segment", "replace_turn", "append"}
+            or not isinstance(content, str) or not content.strip() or payload.get("output_suppressed")):
+        return aggregate, provenance
+    for following in records[index + 1:]:
+        kind = following.get("event_type")
+        after_payload = following.get("payload") or {}
+        if kind in {"chat.tool_call", "chat.tool_update", "chat.tool_result", "chat.output_phase", "chat.input_received"}:
+            return aggregate, provenance
+        if kind in {"chat.delta", "chat.reasoning"} and any(
+                isinstance(after_payload.get(key), str) and after_payload[key]
+                for key in ("content", "delta", "text", "message", "answer")):
+            return aggregate, provenance
+    return content, {
+        "source": "native_chat_final", "native_sequence": final.get("sequence"),
+        "final_mode": mode, "output_phase_id": payload.get("output_phase_id"),
+        "execution_id": payload.get("execution_id"),
+    }
 
 
 def _budget_signal(records: list[dict]) -> bool:
@@ -614,8 +664,14 @@ class JiuwenWorker:
         assert actual_exit is not None
         safe_records = redactor.value(records)
         partial_text, partial_usage, partial_session = _partial_summary(safe_records)
+        final_text, final_provenance = (
+            select_native_final_response(safe_records, redactor.value(terminal))
+            if terminal is not None else (partial_text, {"source": "partial_native_stream"})
+        )
+        if not final_text and partial_text:
+            final_text, final_provenance = partial_text, {"source": "partial_native_stream"}
         result = WorkerResult(
-            final_text=redactor.text(str((terminal or {}).get("output") or partial_text)),
+            final_text=final_text,
             events=[item for item in safe_records if item.get("type") == "event"],
             session_id=str((terminal or {}).get("session_id") or partial_session),
             usage=redactor.value((terminal or {}).get("usage") or partial_usage),
@@ -642,9 +698,10 @@ class JiuwenWorker:
             failure, code = WorkerExecutionError, "NATIVE_FAILED"
         metadata.update(status=result.status, failure_code=code or None, usage=result.usage,
                         session_id=result.session_id, terminal_result_received=terminal is not None,
-                        budget_stop_observed=budget_observed)
+                        budget_stop_observed=budget_observed, final_response=final_provenance)
         if terminal is not None:
             _json_write(output_dir / "terminal-result.json", terminal, redactor)
+        _json_write(output_dir / "final-response.json", {"text": result.final_text, **final_provenance}, redactor)
         _json_write(output_dir / "usage.json", result.usage, redactor)
         _json_write(output_dir / "metadata.json", metadata, redactor)
         if interrupted:
@@ -657,4 +714,4 @@ class JiuwenWorker:
 
 __all__ = ["BASE_COMMIT", "JiuwenWorker", "WorkerResult", "WorkerError", "WorkerConfigurationError",
            "WorkerProtocolError", "WorkerExecutionError", "WorkerTimeoutError", "WorkerBudgetExhaustedError",
-           "normalize_tool_events", "READ_ONLY_TOOLS"]
+           "normalize_tool_events", "select_native_final_response", "READ_ONLY_TOOLS"]

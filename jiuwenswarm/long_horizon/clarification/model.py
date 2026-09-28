@@ -121,7 +121,9 @@ class JiuwenClarificationModel(ClarificationModelRunner):
         prompt = instructions + "\n\n" + prompt
         if require_investigation:
             prompt += ("\n\nBefore replying, search the frozen repository and read at least two distinct relevant "
-                       "public files with native search/read tools. Cite only the files actually inspected. "
+                       "public files with native grep and read_file tools. Only these two tools are available in "
+                       "this read-only transport; use grep to discover paths, not glob, list_files, or shell tools. "
+                       "Cite only the files actually inspected. "
                        "Never write files or consult any live workspace, hidden benchmark tests, or gold patch.")
         prompt += "\n\nReply with exactly one JSON object, no Markdown or prose."
         schema = response_format.model_json_schema()
@@ -160,7 +162,9 @@ class JiuwenClarificationModel(ClarificationModelRunner):
         stage = f"clarification-proposal-{sample_index}"
         instructions = proposal_instructions()
         messages = instructions + "\n\n" + prompt + (
-            "\n\nUse native search and read tools on the frozen snapshot before answering. "
+            "\n\nUse native grep and read_file tools on the frozen snapshot before answering. "
+            "Only these two tools are available in this read-only transport; use grep to discover paths, "
+            "not glob, list_files, or shell tools. "
             "At least one successful targeted search and one successful source read are required. "
             "Every current_repo anchor must be an exact repository-relative path, optionally :start-end, "
             "whose cited lines appeared in an actual read tool result. Investigate both primary and adjacent coverage. "

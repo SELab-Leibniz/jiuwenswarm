@@ -115,6 +115,28 @@ class LocalizationTests(unittest.IsolatedAsyncioTestCase):
         result = await self._run(FakeWorker(events=events))
         self.assertEqual([], result["locations"])
 
+    async def test_native_tooloutput_repr_uses_paired_rendered_source_lines(self):
+        events = _events()
+        search = events[1]["payload"]["tool_result"]
+        search["result"] = "success=True data={'stdout': 'src/logic.py', 'exit_code': 0} error=None"
+        search["rendered_result"] = "src/logic.py"
+        read = events[3]["payload"]["tool_result"]
+        rendered = "     1\tdef increment(value):\n     2\t    return value + 1"
+        read["result"] = f"success=True data={{'content': {rendered!r}, 'line_count': 2}} error=None"
+        read["rendered_result"] = rendered
+        result = await self._run(FakeWorker(events=events))
+        self.assertEqual("completed", result["status"], result["warnings"])
+        self.assertEqual(["read-1"], result["locations"][0]["evidence"]["read_call_ids"])
+
+    async def test_native_rendering_does_not_turn_denied_read_into_evidence(self):
+        events = _events()
+        read = events[3]["payload"]["tool_result"]
+        read["result"] = "[PERMISSION_DENIED] Denied by rule: tools.read_file"
+        read["rendered_result"] = "     1\tdef increment(value):\n     2\t    return value + 1"
+        read["success"] = False
+        result = await self._run(FakeWorker(events=events))
+        self.assertEqual([], result["locations"])
+
     async def test_outside_snapshot_and_unseen_files_are_rejected(self):
         for path in ("../live/gold.py", "/etc/passwd", "missing.py"):
             result = await self._run(FakeWorker(locations=[_location(path)], events=_events(path)))

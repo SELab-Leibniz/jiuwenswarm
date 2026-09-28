@@ -105,8 +105,16 @@ def _observed_lines(source: str, result: str) -> tuple[int, int] | None:
     """Require source bytes in an actual read result, allowing line-number prefixes."""
     source_lines = source.splitlines()
     output_lines = set(result.splitlines())
-    # Both native textual renderings (`12: ...`, `12| ...`, `12→...`) are supported.
-    output_lines.update(re.sub(r"^\s*\d+\s*(?:[:|→]|\t)\s?", "", line) for line in result.splitlines())
+    # Native read_file emits a padded line number, one tab, then the exact
+    # source line. Whitespace after that tab belongs to the source: removing
+    # even one character rejects every indented Python line. Other renderers
+    # use a colon/pipe/arrow with one optional presentation space.
+    for line in result.splitlines():
+        numbered = re.match(r"^[ \t]*\d+ *\t(.*)$", line)
+        if numbered is None:
+            numbered = re.match(r"^[ \t]*\d+[ \t]*[:|→] ?(.*)$", line)
+        if numbered is not None:
+            output_lines.add(numbered.group(1))
     matched = [index for index, line in enumerate(source_lines, 1) if line.strip() and line in output_lines]
     if not matched:
         return None

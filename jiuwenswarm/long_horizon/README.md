@@ -26,7 +26,7 @@ python -m jiuwenswarm.long_horizon \
   --workspace /workspace/project \
   --prompt-file /inputs/task.md \
   --output-dir /agent_out/long-horizon-suite \
-  --worker-bin /opt/jiuwenswarm/.venv/bin/jiuwenswarm-process \
+  --worker-bin /opt/jiuwenswarm-bench/bin/jiuwenswarm-worker \
   --config-template /agent_out/jiuwenswarm/state/config/config.yaml \
   --timeout-seconds 172200
 ```
@@ -34,6 +34,9 @@ python -m jiuwenswarm.long_horizon \
 输出目录必须在项目外且每次新建。模型密钥只通过环境变量提供。bench 会
 注入原始基座与实际 suite 提交的完整 SHA。工作流完成只说明执行链完整，
 最终任务是否解决必须由独立 benchmark verifier 判定。
+
+上述命令在 bench 构建的镜像内执行。worker launcher 先将原生 agent-core
+日志指向该阶段的外部 state 目录，再进入原生机器接口，避免日志写入 S0。
 
 ## 预算与恢复
 

@@ -14,7 +14,9 @@ from jiuwenswarm.long_horizon.clarification import (
     JiuwenClarificationModel, SideCallBudgetExhausted, SideCallInterrupted, SideCallIntegrityError, WorkspaceSnapshotter,
     capture_workspace, run_clarification, save_pact_inputs, snapshot_workspace,
 )
-from jiuwenswarm.long_horizon.clarification.event_evidence import investigation_tool_calls, verified_evidence
+from jiuwenswarm.long_horizon.clarification.event_evidence import (
+    _observed_lines, investigation_tool_calls, verified_evidence,
+)
 from jiuwenswarm.long_horizon.clarification.types import (
     ClarificationProposal, PactAcceptanceCriterion, PactGoalContract, PactInitialPlan, PactRuntimeInput,
 )
@@ -173,6 +175,28 @@ def test_citation_outside_observed_read_lines_is_rejected(frozen):
     references, errors = verified_evidence(ClarificationProposal.model_validate(proposal_payload()), calls)
     assert errors and "line range" in errors[0]
     assert [item.path for item in references] == ["tests/test_api.py"]
+
+
+def test_native_numbered_read_preserves_source_indentation(frozen):
+    _, snapshot = frozen
+    source = "def value():\n    return 1\n"
+    native_rendering = "     1\tdef value():\n     2\t    return 1"
+    assert _observed_lines(source, native_rendering) == (1, 2)
+    events = event_pair("native", "read_file", {"file_path": "src/api.py"},
+        "success=True data={'content': 'native tool model representation'} error=None")
+    events[-1]["payload"]["tool_result"]["rendered_result"] = native_rendering
+    calls = investigation_tool_calls(events, snapshot)
+    assert calls[0].successful is True
+    assert calls[0].line_range == (1, 2)
+
+
+def test_numbered_read_does_not_accept_changed_indent_or_unread_gaps():
+    source = "def first():\n    return 1\n\ndef second():\n    return 2\n"
+    wrong_indent = "     1\tdef first():\n     2\t   return 1"
+    assert _observed_lines(source, wrong_indent) == (1, 1)
+    disjoint = "     1\tdef first():\n     5\t    return 2"
+    assert _observed_lines(source, disjoint) == (1, 1)
+    assert _observed_lines(source, "     2:     return 1") == (2, 2)
 
 
 def test_budget_exhaustion_does_not_enter_evidence_retry(frozen, tmp_path):
