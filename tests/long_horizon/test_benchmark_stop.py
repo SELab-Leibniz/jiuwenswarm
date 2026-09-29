@@ -2,8 +2,10 @@
 import copy
 from types import SimpleNamespace as State
 import unittest
+from unittest.mock import patch
 
 from jiuwenswarm.long_horizon.pact.long_horizon_benchmark import _acceptance_blocked_only_by_questions
+from jiuwenswarm.long_horizon.pact.benchmark_native import NativeBenchmarkAdapter
 
 
 class BenchmarkStopTests(unittest.TestCase):
@@ -24,3 +26,38 @@ class BenchmarkStopTests(unittest.TestCase):
             for key,value in changes.items():setattr(changed,key,value)
             with self.subTest(changes=changes):
                 self.assertFalse(_acceptance_blocked_only_by_questions(changed))
+
+
+class NativeSourceOwnershipTests(unittest.IsolatedAsyncioTestCase):
+    async def test_production_roles_receive_source_ownership_boundary(self):
+        import asyncio
+        import tempfile
+        from pathlib import Path
+
+        calls = []
+
+        async def run(**kwargs):
+            calls.append(kwargs)
+            return State(status='completed', exit_code=0,
+                         final_text='{"verdict":"continue","reason":"public evidence checked"}')
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            'jiuwenswarm.long_horizon.pact.benchmark_native.NativeExecution.from_worker',
+            return_value=State(fingerprint='frozen'),
+        ):
+            for role in ('worker', 'reviewer'):
+                adapter = NativeBenchmarkAdapter(
+                    semantic_role=role, worker=State(run=run), outer_loop=None,
+                    invocation_id='control', output_dir=Path(directory),
+                    abort_event=asyncio.Event(), expected_fingerprint='frozen',
+                )
+                result = await adapter._turn(State(
+                    prompt='Original public task', review_mode='acceptance',
+                    timeout_seconds=30, deadline=None, workdir=Path(directory), artifact_dir=None,
+                ))
+                self.assertEqual(result.status, 'completed')
+                self.assertTrue(calls[-1]['prompt'].startswith('Original public task'))
+                self.assertIn('Never write, copy, sync, install, or rebuild candidate changes into the original source checkout', calls[-1]['prompt'])
+                self.assertIn('candidate-local isolated directory', calls[-1]['prompt'])
+                self.assertIn('do not copy .git files or directories between checkouts', calls[-1]['prompt'])
+                self.assertEqual(calls[-1]['read_only'], role == 'reviewer')

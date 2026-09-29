@@ -90,3 +90,8 @@ resolve into the original source checkout. Original Git and submodule metadata
 must not be copied or modified. This is a role instruction change; Core source
 ownership/export guards and the `592efcacf...` Git-link wheel remain unchanged.
 It does not repair Core cleanup of read-only Go module caches.
+
+The original-task benchmark's `NativeBenchmarkAdapter` also appends this
+boundary to both semantic roles. A real native transport control caught the
+initial migration into only the legacy role adapter; the corrected benchmark
+path is tested independently before new task admission.

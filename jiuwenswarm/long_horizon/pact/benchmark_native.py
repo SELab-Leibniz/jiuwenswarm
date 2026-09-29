@@ -74,7 +74,13 @@ class NativeBenchmarkAdapter:
             return TurnResult(status='spawn_failed', final_text='', output_source='jiuwenswarm_native', exit_code=None)
         self.sequence += 1
         directory = self.output_dir / self.semantic_role / f'{self.sequence:04d}'
-        prompt = request.prompt
+        prompt = request.prompt + (
+            '\nDo not reset shared refs or source HEAD. '
+            'Never write, copy, sync, install, or rebuild candidate changes into the original source checkout, '
+            'even to reuse its compiled extensions or test environment. If imports resolve there, '
+            'rebuild or install in a candidate-local isolated directory and recheck module __file__ paths. '
+            'Keep original source Git and submodule metadata unchanged; do not copy .git files or '
+            'directories between checkouts. Final delivery belongs to the controller.')
         acceptance = self.semantic_role == 'reviewer' and request.review_mode == 'acceptance'
         if acceptance:
             prompt += ('\nNative transport: finish with exactly one JSON object containing verdict '
