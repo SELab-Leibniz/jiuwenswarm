@@ -14,9 +14,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import tempfile
+import unicodedata
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 from pact_core.artifacts import read_json, write_json_atomic
@@ -25,7 +29,7 @@ from pact_core.runtime import RuntimeContractError
 from pact_core.runtime.export import ExportReceipt, verify_export
 from pact_core.schemas import TurnRequest
 
-from jiuwenswarm.long_horizon.clarification.compat import Workspace
+from jiuwenswarm.long_horizon.clarification.compat import Workspace, ensure_owner_only_directory
 from jiuwenswarm.long_horizon.clarification.artifacts import CLARIFICATION_PHASE_DIR
 from jiuwenswarm.long_horizon.clarification.budget import (
     SideCallBudgetExhausted,
@@ -100,13 +104,43 @@ def stage_record(
     The snapshot is captured from the sealed export tree, never from a live
     worktree, so later stages read exactly the bytes Core recorded.
     """
-    verify_export(receipt)
-    snapshot = WorkspaceSnapshotter().capture(
-        Workspace.from_cwd(str(receipt.snapshot)),
-        turn_root / "snapshots" / f"{stage}-{uuid4().hex}",
-        snapshot_id=f"{stage}-{receipt.candidate.tree[:16]}",
-        include_git_history=False,
-    )
+    payload = verify_export(receipt)
+    opaque = cast(dict[str, dict[str, str]], payload["opaque_symlinks"])
+    artifact = turn_root / "snapshots" / f"{stage}-{uuid4().hex}"
+
+    def capture(source: Path) -> WorkspaceSnapshot:
+        return WorkspaceSnapshotter().capture(
+            Workspace.from_cwd(str(source)),
+            artifact,
+            snapshot_id=f"{stage}-{receipt.candidate.tree[:16]}",
+            include_git_history=False,
+        )
+
+    if opaque:
+        # Reconstruct original link bytes only for native snapshot capture.
+        # The exporter validates every parent and baseline identity. Copy all
+        # regular files first; never write through or follow a fixture link.
+        # Native capture retains external targets as blobs/metadata and omits
+        # them from the model view. The sealed export remains untouched.
+        ensure_owner_only_directory(turn_root)
+        with tempfile.TemporaryDirectory(prefix="fixture-capture-", dir=turn_root) as directory:
+            source = Path(directory) / "snapshot"
+            shutil.copytree(receipt.snapshot, source, symlinks=True)
+            if any(unicodedata.normalize("NFC", name).casefold() == ".gitignore" for name in opaque):
+                raise RuntimeContractError("external ignore-file fixtures cannot be captured")
+            for name, item in opaque.items():
+                (source / name).symlink_to(item["target"])
+            ignore_file = source / ".gitignore"
+            if ignore_file.is_symlink() or (ignore_file.exists() and not ignore_file.is_file()):
+                raise RuntimeContractError("external ignore-file fixtures cannot be captured")
+            snapshot = capture(source)
+            entries = {entry.relative_path: entry for entry in snapshot.roots[0].entries}
+            for name in opaque:
+                entry = entries.get(name)
+                if entry is None or entry.kind != "symlink" or entry.model_visible:
+                    raise RuntimeContractError("opaque fixture was omitted or exposed by snapshot capture")
+    else:
+        snapshot = capture(receipt.snapshot)
     checkpoint = save_stage_checkpoint(
         turn_root,
         stage=stage,

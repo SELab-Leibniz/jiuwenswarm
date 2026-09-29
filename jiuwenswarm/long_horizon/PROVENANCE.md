@@ -95,3 +95,24 @@ The original-task benchmark's `NativeBenchmarkAdapter` also appends this
 boundary to both semantic roles. A real native transport control caught the
 initial migration into only the legacy role adapter; the corrected benchmark
 path is tested independently before new task admission.
+
+
+Synchronized Chrys `12e0a2a8cf880d0db1c8e1ecf27966c27a0d7b89`: sealed
+exports keep unchanged original external fixture links as v3 opaque metadata.
+The native stage bridge reconstructs only their literal link bytes in a private
+capture tree, where snapshot capture seals them as hidden blobs. No external
+target enters a model view. Rewritten/new escapes and aliases fail closed.
+This requires the selecting host to pin the matching updated Core wheel; an
+old running image is not updated by this source commit.
+
+The separately maintained public Core repair also prepares read-only ignored
+Go cache directories for Git clean inside controller-owned Worker worktrees,
+without chmod of files, hard links or external symlink targets. These repairs
+change the explicit treatment dependency and apply only to newly admitted tasks.
+
+The combined fixture/cache boundary wheel for this treatment has SHA-256
+`2d939bc863f5f1a4195183a32c6ebeaedc7341b9e6b0dce7e8fbe4395f525948`.
+It retains the source base `a2e50f6709caaa29e3bbd87b114d981a543ae00c`,
+Chrys12e0a2a8's public export patch and the owning-Core directory cleanup
+repair. Its public source revision and control receipts belong to the host's
+release provenance; the binary remains outside this repository.
