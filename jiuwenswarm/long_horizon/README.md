@@ -119,3 +119,30 @@ S0 澄清 → PACT BenchDriver，不再强制先生成 Goal Contract、Initial P
 公开 verifier。原生 Worker/Reviewer、澄清 side call 共享固定 trial 预算，
 不经过路由。最终输出 `selection.json` 和 Core 封存候选；内部接纳和独立评测
 分开记录。旧入口和旧测评工件保留，不能混入新版本成绩。
+
+## 公开源码写入边界
+
+专用 `pact.long_horizon_benchmark` 入口启用 `linux-dac/v1` 写入保护。
+该模式要求固定 Linux 求解镜像中的 root 控制器和 `setpriv`；不支持的平台
+在模型调用前失败。普通 `JiuwenWorker` 和旧工作流入口默认不启用此模式。
+
+控制器只从原始公开源码的 Git 跟踪文件名建立测试清单：目录名为
+`test`、`tests`、`__tests__`、`testdata`、`fixtures`、`__fixtures__`，或文件名
+含 `.test.`、`.test-`、`.spec.`、`_test.`、`_tests.` 或以 `test_` 开头。
+清单及其哈希记入 workspace policy；不读取独立 verifier 的补丁或排除路径。
+已有公开测试保持只读，源码及新建 `checks/` 检查仍可写。
+
+可修改代码的原生进程及其子进程使用独立 UID/GID，清除补充组和 capabilities，
+并禁止获取新权限。控制器持有目录及 Git 元数据，文件工具、shell、解释器
+和格式化器共同受操作系统权限约束。`.pact`、`.pact-io` 的 ASCII 大小写
+变体及 `.chrys`、`.semantic-search` 由控制器占用，避免原生工具污染 Core
+控制目录。只读和无工具阶段沿用原有策略。
+
+每次原生调用退出后，控制器先终止残留的该 UID 进程，再校验已有测试内容、
+移除自身的空目录占位文件并恢复权限。无法确认进程停止时保留保护并报错。
+每次调用的 `native-write-guard.json` 保存完成或失败凭据。候选补丁仍由固定
+Core 规范导出，不过滤、回滚或重写模型修改。使用新边界的尝试必须冻结新
+suite/scaffold 身份；旧尝试和原成绩保持不变，修复重跑不能计作原始 pass@1。
+
+启用图工具时，已建立的外部 ContextGraph 调用日志临时交给原生 UID 追加，
+阶段退出后恢复控制器所有权；不改写日志字节、查询结果、健康门槛或固定图身份。

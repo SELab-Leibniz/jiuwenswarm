@@ -1315,7 +1315,7 @@ async def _main(namespace: argparse.Namespace) -> int:
     args = arguments_from_namespace(namespace)
     worker = JiuwenWorker(namespace.worker_bin, namespace.config_template,
         source_commit=os.environ.get("JIUWENSWARM_SUITE_COMMIT", ""),
-        default_timeout_seconds=args.turn_timeout_seconds)
+        default_timeout_seconds=args.turn_timeout_seconds, benchmark_write_guard=True)
     benchmark = LongHorizonBenchmark(args, worker=worker)
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):

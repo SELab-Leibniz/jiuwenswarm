@@ -27,6 +27,7 @@ import yaml
 from jiuwenswarm.channels.process_cli.protocol.model import (
     OneShotEvent, OneShotRunInput, OneShotRunResult,
 )
+from .benchmark_write_guard import BenchmarkWriteGuard, WriteGuardError, public_test_paths
 
 BASE_COMMIT = "49c9f5b4c66d193e4168bfa9c82c2df025c773f0"
 # At this native pin glob/list_files do not consistently enforce FileGuard's
@@ -491,12 +492,15 @@ async def _terminate_group(process: asyncio.subprocess.Process, *, grace: float 
 
 class JiuwenWorker:
     def __init__(self, binary: Path, config_template: Path, source_commit: str = BASE_COMMIT,
-                 default_timeout_seconds: float = 21600.0) -> None:
+                 default_timeout_seconds: float = 21600.0,
+                 benchmark_write_guard: bool = False) -> None:
         self.binary = Path(binary).expanduser().resolve()
         self.config_template = Path(config_template).expanduser().resolve()
         self.source_commit = source_commit
         self.default_timeout_seconds = default_timeout_seconds
         self.benchmark_source_root: Path | None = None
+        self.benchmark_write_guard = benchmark_write_guard
+        self._benchmark_inventory: tuple[Path, tuple[str, ...]] | None = None
         # Deliberately process-local: no implicit cross-workflow restoration.
         self._sessions: dict[str, _SessionLease] = {}
         self._state_directories: set[Path] = set()
@@ -524,6 +528,16 @@ class JiuwenWorker:
     def benchmark_workspace_policy(self) -> dict | None:
         if self.benchmark_source_root is None:
             return None
+        if self.benchmark_write_guard:
+            source = self.benchmark_source_root.resolve()
+            if self._benchmark_inventory is None or self._benchmark_inventory[0] != source:
+                self._benchmark_inventory = (source, public_test_paths(source))
+            paths = self._benchmark_inventory[1]
+            return {"schema": "jiuwenswarm-benchmark/workspace-policy/v2",
+                    "source_root": str(source), "preserve_existing_tests": True,
+                    "automatic_path_rewrite": False, "candidate_filtering": False,
+                    "native_write_guard": "linux-dac/v1", "protected_public_paths": list(paths),
+                    "public_inventory_sha256": _object_sha256(list(paths))}
         return {"schema": "jiuwenswarm-benchmark/workspace-policy/v1",
                 "source_root": str(self.benchmark_source_root),
                 "preserve_existing_tests": True, "automatic_path_rewrite": False}
@@ -545,6 +559,13 @@ class JiuwenWorker:
             "test fixtures, hidden checks or acceptance rules. A failed check is evidence, "
             "not permission to weaken it.\n"
         )
+        if self.benchmark_write_guard:
+            instruction += (
+                "The controller enforces preservation of existing public tests and reserved namespaces "
+                "for file tools, shells and scripts. Leave controller-owned namespace guard entries "
+                "untouched. Git mutations, checkpoints and canonical export belong to the controller; "
+                "edit source files and report your changes without managing Git metadata.\n"
+            )
         if read_only:
             instruction += "This role is read-only: inspect evidence without changing any files.\n"
         return instruction + "\nOriginal role request follows verbatim:\n" + prompt
@@ -573,8 +594,12 @@ class JiuwenWorker:
                                            code="INVALID_TIMEOUT", output_dir=output_dir)
         admitted_monotonic, admitted_unix = time.monotonic(), time.time()
         environment = os.environ.copy()
-        identity = self._admission_identity(stage=stage, workspace=workspace, read_only=read_only,
-                                             schema=schema, tool_policy=tool_policy, environment=environment)
+        try:
+            identity = self._admission_identity(stage=stage, workspace=workspace, read_only=read_only,
+                                                 schema=schema, tool_policy=tool_policy, environment=environment)
+        except (OSError, ValueError, subprocess.SubprocessError, WriteGuardError):
+            raise WorkerConfigurationError("Public source write-guard inventory is unavailable.",
+                                           code="NATIVE_WRITE_GUARD_UNAVAILABLE", output_dir=output_dir) from None
         lease = None
         if session_id is not None:
             lease = self._sessions.get(session_id)
@@ -784,6 +809,8 @@ class JiuwenWorker:
         policy_proofs: list[int] = []
         native_session: str | None = session_id
         started = time.monotonic()
+        write_guard: BenchmarkWriteGuard | None = None
+        write_guard_failed = False
 
         async def read_stdout() -> None:
             nonlocal terminal, protocol_error, budget_observed, budget_stop_task, policy_stop_task, native_session
@@ -880,8 +907,28 @@ class JiuwenWorker:
                 metadata["stream_drain_incomplete"] = True
 
         try:
+            command = [str(self.binary), "--run-json", "-"]
+            if self.benchmark_write_guard and not read_only and identity["tool_policy"] != "none":
+                policy = identity["benchmark_workspace_policy"]
+                if policy is None or policy["native_write_guard"] != "linux-dac/v1":
+                    raise WriteGuardError("Benchmark write-guard source identity is unavailable.")
+                journals = ()
+                if environment.get("JIUWENSWARM_BENCH_MEMORY_ENABLED") == "1":
+                    journal = environment.get("CONTEXTGRAPH_CALL_AUDIT_PATH", "")
+                    if not journal:
+                        raise WriteGuardError("Configured graph MCP diagnostic journal is unavailable.")
+                    journals = (Path(journal),)
+                write_guard = BenchmarkWriteGuard(workspace, state, tuple(policy["protected_public_paths"]), journals)
+                write_guard.prepare()
+                environment = write_guard.environment(environment)
+                command = [*write_guard.command_prefix, *command]
+                metadata.update(command=command, native_write_guard=dict(write_guard.receipt),
+                                requested_config_environment_sha256=_environment_sha256(
+                                    config_path.read_text(encoding="utf-8"), environment))
+                _json_write(output_dir / "native-write-guard.json", write_guard.receipt, redactor)
+                _json_write(output_dir / "metadata.json", metadata, redactor)
             spawning = asyncio.create_task(asyncio.create_subprocess_exec(
-                str(self.binary), "--run-json", "-", cwd=state, env=environment,
+                *command, cwd=state, env=environment,
                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE, start_new_session=True, limit=8 * 1024 * 1024,
             ))
@@ -906,6 +953,11 @@ class JiuwenWorker:
                     interrupted = True
                     await finish_cleanup(_terminate_group(process))
                     await finish_cleanup(drain_after_stop(task))
+        except WriteGuardError:
+            metadata.update(status="configuration_failed", failure_code="NATIVE_WRITE_GUARD_UNAVAILABLE")
+            _json_write(output_dir / "metadata.json", metadata, redactor)
+            raise WorkerConfigurationError("Native benchmark write isolation could not be established.",
+                                           code="NATIVE_WRITE_GUARD_UNAVAILABLE", output_dir=output_dir) from None
         except OSError:
             metadata.update(status="startup_failed", failure_code="STARTUP_FAILED")
             _json_write(output_dir / "metadata.json", metadata, redactor)
@@ -921,6 +973,11 @@ class JiuwenWorker:
                 actual_exit = process.returncode
                 metadata.update(actual_exit_code=actual_exit,
                                 signal=-actual_exit if actual_exit is not None and actual_exit < 0 else None)
+            if write_guard is not None:
+                receipt = write_guard.finish()
+                metadata["native_write_guard"] = dict(receipt)
+                write_guard_failed = receipt["status"] != "complete"
+                _json_write(output_dir / "native-write-guard.json", receipt, redactor)
             metadata["finished_at_monotonic"] = time.monotonic()
             metadata["elapsed_seconds"] = metadata["finished_at_monotonic"] - started
             metadata["finished_at_unix"] = time.time()
@@ -935,6 +992,11 @@ class JiuwenWorker:
             metadata["tool_policy_proof_sequences"] = policy_proofs
             _json_write(output_dir / "metadata.json", metadata, redactor)
 
+        if write_guard_failed:
+            metadata.update(status="failed", failure_code="NATIVE_WRITE_GUARD_INTEGRITY_FAILED")
+            _json_write(output_dir / "metadata.json", metadata, redactor)
+            raise WorkerExecutionError("Native benchmark write guard failed its integrity check.",
+                                       code="NATIVE_WRITE_GUARD_INTEGRITY_FAILED", output_dir=output_dir)
         actual_exit = process.returncode if process is not None else 1
         assert actual_exit is not None
         safe_records = redactor.value(records)
