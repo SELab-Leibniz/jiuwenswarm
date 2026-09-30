@@ -102,6 +102,10 @@ def _state_environment(state: Path) -> dict[str, str]:
         "JIUWENSWARM_STARTUP_DIAGNOSTICS_DIR": str(state / "startup"),
         "AGENTOS_GATEWAY_LOG_DIR": str(state / "logs"),
         "OPENJIUWEN_CONTEXT_DEBUG_DIR": str(state / "context-debug"),
+        # Read-only roles run as the controller; mutable benchmark roles drop
+        # privileges. Keep their import caches private so a root role cannot
+        # leave an unreadable __pycache__ in shared extension search paths.
+        "PYTHONPYCACHEPREFIX": str(state / "python-cache"),
         "PYTHONUNBUFFERED": "1",
     }
 
@@ -709,6 +713,7 @@ class JiuwenWorker:
         metadata = {
             "stage": stage, "source": identity["source"],
             "request_id": request_id, "workspace": str(workspace), "state_dir": str(state),
+            "python_bytecode_cache": str(state / "python-cache"),
             "read_only": read_only, "timeout_seconds": timeout, "schema_requested": schema is not None,
             "tool_policy": identity["tool_policy"],
             "status": "preparing", "actual_exit_code": None, "signal": None, "timed_out": False,

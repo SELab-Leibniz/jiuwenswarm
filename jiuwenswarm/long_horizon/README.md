@@ -50,6 +50,11 @@ python -m jiuwenswarm.long_horizon \
 
 上述命令在 bench 构建的镜像内执行。worker launcher 先将原生 agent-core
 日志指向该阶段的外部 state 目录，再进入原生机器接口，避免日志写入 S0。
+每个原生阶段的 Python 字节码缓存也放在自己的 `state/python-cache`，
+由 `PYTHONPYCACHEPREFIX` 指定，并在 `metadata.json` 中记录。只读角色的
+root 缓存不能留在共享扩展目录中，否则会阻止后续降权 Worker 扫描扩展。
+同会话纠正继续使用原状态目录；源码、公开测试保护和候选导出不受缓存
+位置影响。
 
 ## 预算与恢复
 

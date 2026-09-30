@@ -12,6 +12,7 @@ from unittest.mock import patch
 from jiuwenswarm.long_horizon.benchmark_write_guard import (
     BenchmarkWriteGuard, WriteGuardError, public_test_paths, reserved_names,
 )
+from jiuwenswarm.long_horizon.worker import _state_environment
 
 
 class PublicWritePolicyTests(unittest.TestCase):
@@ -161,6 +162,34 @@ print(json.dumps(blocked))
         self.assertEqual(journal.read_text(), "public preflight\nnative query\n")
         self.assertEqual(journal.stat().st_uid, 0)
         self.assertEqual(journal.stat().st_mode & 0o777, 0o600)
+
+    def test_root_import_does_not_poison_later_mutable_extension_scan(self):
+        shared = self.root / "shared"
+        package = shared / "extension_fixture"
+        package.mkdir(parents=True, mode=0o755)
+        shared.chmod(0o755)
+        module = package / "__init__.py"
+        module.write_text("value = 1\n")
+        module.chmod(0o644)
+        root_state = self.root / "readonly-state"
+        root_state.mkdir()
+        environment = dict(os.environ, PYTHONPATH=str(shared))
+        environment.update(_state_environment(root_state))
+        subprocess.run([sys.executable, "-c", "import os; os.umask(0o077); import extension_fixture"],
+                       env=environment, stdin=subprocess.DEVNULL, capture_output=True, check=True)
+        self.guard.prepare()
+        environment.update(_state_environment(self.state))
+        environment = self.guard.environment(environment)
+        script = "import extension_fixture; from pathlib import Path; import sys; " \
+                 "[(p/'extension.yaml').exists() for p in Path(sys.argv[1]).iterdir() if p.is_dir()]"
+        result = subprocess.run([*self.guard.command_prefix, sys.executable, "-c", script, str(package)],
+                                env=environment, stdin=subprocess.DEVNULL, capture_output=True,
+                                text=True, timeout=15, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((package / "__pycache__").exists())
+        self.assertTrue(any((root_state / "python-cache").rglob("*.pyc")))
+        self.assertTrue(any((self.state / "python-cache").rglob("*.pyc")))
+        self.assertEqual(self.guard.finish()["status"], "complete")
 
     def test_unconfirmed_process_exit_retains_protection(self):
         self.guard.prepare()

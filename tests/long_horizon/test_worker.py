@@ -559,7 +559,7 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("secret-model-key", str(context.exception))
         for path in (self.root / "stage").rglob("*"):
             if path.is_file():
-                self.assertNotIn("secret-model-key", path.read_text())
+                self.assertNotIn(b"secret-model-key", path.read_bytes())
 
     async def test_explicit_budget_signal_preserved(self):
         worker = self.worker("""
