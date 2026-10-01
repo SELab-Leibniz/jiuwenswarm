@@ -26,6 +26,7 @@ import time
 
 NATIVE_UID = 65534
 NATIVE_GID = 65534
+NATIVE_WRITE_GUARD_POLICY = "linux-dac/v2"
 _PUBLIC_TEST_DIRS = frozenset({"test", "tests", "__tests__", "testdata", "fixtures", "__fixtures__"})
 
 
@@ -74,6 +75,32 @@ def public_test_paths(source: Path) -> tuple[str, ...]:
     return tuple(sorted(protected))
 
 
+def public_test_directories(public_paths: tuple[str, ...]) -> tuple[str, ...]:
+    """Find visible public-test directory roots from the frozen Git inventory."""
+    roots = set()
+    for value in public_paths:
+        path = Path(value)
+        if path.is_absolute() or ".." in path.parts:
+            raise WriteGuardError("Public source inventory contains an invalid path.")
+        for index, part in enumerate(path.parts):
+            if part.casefold() in _PUBLIC_TEST_DIRS:
+                roots.add(Path(*path.parts[:index + 1]).as_posix())
+                break
+    return tuple(sorted(roots))
+
+
+def _directory_entries(root: Path) -> tuple[tuple[str, int, str], ...]:
+    """Inventory names and kinds without following links or reading file bodies."""
+    entries = []
+    for parent, directories, files in os.walk(root, followlinks=False):
+        for name in directories + files:
+            path = Path(parent) / name
+            info = path.lstat()
+            entries.append((path.relative_to(root).as_posix(), stat.S_IFMT(info.st_mode),
+                            os.readlink(path) if stat.S_ISLNK(info.st_mode) else ""))
+    return tuple(sorted(entries))
+
+
 def reserved_names() -> tuple[str, ...]:
     """Match Core's ASCII case-insensitive namespace contract."""
     names = {".semantic-search", ".chrys"}
@@ -100,14 +127,19 @@ class BenchmarkWriteGuard:
         self.original: dict[Path, tuple[int, int, int]] = {}
         self.sentinels: dict[Path, tuple[int, int]] = {}
         self.protected: dict[Path, str] = {}
+        self.protected_directories: dict[Path, tuple[int, int]] = {}
+        self.public_directory_entries: dict[Path, tuple[tuple[str, int, str], ...]] = {}
         self.lock = None
         self.prepared = False
         self.finished = False
-        self.receipt: dict = {"schema": "jiuwenswarm-benchmark/native-write-guard/v1",
+        self.receipt: dict = {"schema": "jiuwenswarm-benchmark/native-write-guard/v2",
+                              "policy": NATIVE_WRITE_GUARD_POLICY,
                               "status": "not_prepared", "uid": NATIVE_UID, "gid": NATIVE_GID,
                               "public_inventory_sha256": hashlib.sha256(
                                   json.dumps(public_paths, ensure_ascii=True).encode()).hexdigest(),
                               "public_inventory_count": len(public_paths),
+                              "protected_public_directories": list(public_test_directories(public_paths)),
+                              "public_directory_additions_allowed": False,
                               "automatic_path_rewrite": False, "candidate_filtering": False}
 
     @property
@@ -181,6 +213,19 @@ class BenchmarkWriteGuard:
                 if not target.is_relative_to(self.workspace):
                     raise WriteGuardError("Protected public test links outside the role workspace.")
                 protected.add(target)
+        public_roots = tuple(self.workspace / name for name in public_test_directories(self.public_paths))
+        for root in public_roots:
+            if (not root.is_dir() or root.is_symlink()
+                    or any(parent.is_symlink() for parent in root.parents
+                           if parent.is_relative_to(self.workspace))):
+                raise WriteGuardError("Protected public test directory is missing or aliased.")
+            self.public_directory_entries[root] = _directory_entries(root)
+            for parent, directories, _ in os.walk(root, followlinks=False):
+                path = Path(parent)
+                info = path.lstat()
+                self.protected_directories[path] = (info.st_dev, info.st_ino)
+                if any((path / name).is_symlink() for name in directories):
+                    raise WriteGuardError("Protected public test directory contains a directory link.")
         for root, directories, files in os.walk(self.workspace, followlinks=False):
             parent = Path(root)
             info = self._remember(parent)
@@ -207,6 +252,11 @@ class BenchmarkWriteGuard:
                         self.protected[path] = _digest(path)
                 else:
                     os.chown(path, NATIVE_UID, NATIVE_GID, follow_symlinks=False)
+        # A sticky writable directory protects existing root-owned entries but
+        # permits new files and subdirectories. Lock the visible public trees
+        # after the ownership walk, while source and separate checks stay writable.
+        for path in self.protected_directories:
+            os.chmod(path, 0o555)
         for name in reserved_names():
             path = self.workspace / name
             if path.exists() or path.is_symlink():
@@ -229,6 +279,7 @@ class BenchmarkWriteGuard:
             os.chown(journal, NATIVE_UID, NATIVE_GID)
         self.prepared = True
         self.receipt.update(status="prepared", protected_file_count=len(self.protected),
+                            protected_directory_count=len(self.protected_directories),
                             reserved_namespace_count=len(self.sentinels), capabilities="none",
                             no_new_privileges=True, writable_diagnostic_journals=len(self.writable_journals))
 
@@ -269,6 +320,21 @@ class BenchmarkWriteGuard:
                     intact = False
                 if not intact:
                     violations.append(path.relative_to(self.workspace).as_posix())
+            for path, identity in self.protected_directories.items():
+                try:
+                    info = path.lstat()
+                    intact = stat.S_ISDIR(info.st_mode) and (info.st_dev, info.st_ino) == identity
+                except OSError:
+                    intact = False
+                if not intact:
+                    violations.append(path.relative_to(self.workspace).as_posix())
+            for root, entries in self.public_directory_entries.items():
+                try:
+                    intact = root.is_dir() and not root.is_symlink() and _directory_entries(root) == entries
+                except OSError:
+                    intact = False
+                if not intact:
+                    violations.append(root.relative_to(self.workspace).as_posix() + "/<entries>")
             for path, identity in self.sentinels.items():
                 try:
                     info = path.lstat()
@@ -301,7 +367,8 @@ class BenchmarkWriteGuard:
                         os.chmod(path, mode)
             status = "complete" if self.prepared else "not_prepared_cleaned"
             self.receipt.update(status="integrity_failed" if violations else status,
-                                protected_content_unchanged=not violations, violations=violations)
+                                protected_content_unchanged=not violations,
+                                protected_directory_entries_unchanged=not violations, violations=violations)
             return self.receipt
         except OSError:
             self.receipt.update(status="integrity_failed", protected_content_unchanged=False,

@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from jiuwenswarm.long_horizon.benchmark_write_guard import (
-    BenchmarkWriteGuard, WriteGuardError, public_test_paths, reserved_names,
+    BenchmarkWriteGuard, WriteGuardError, public_test_directories, public_test_paths, reserved_names,
 )
 from jiuwenswarm.long_horizon.worker import _state_environment
 
@@ -39,6 +39,12 @@ class PublicWritePolicyTests(unittest.TestCase):
         self.assertIn(".PaCt-Io", names)
         self.assertEqual(sum(name.casefold() == ".pact" for name in names), 16)
         self.assertEqual(sum(name.casefold() == ".pact-io" for name in names), 64)
+
+    def test_public_directory_roots_do_not_reserve_new_checks_or_source(self):
+        self.assertEqual(public_test_directories((
+            "src/feature.test-d.ts", "sample_test.go", "checkers/testdata/existing/positive.go",
+            "tests/fixtures/original.py", "other/TESTS/unit.py", "checks/regression.py",
+        )), ("checkers/testdata", "other/TESTS", "tests"))
 
     def test_unsupported_host_does_not_modify_workspace(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -133,6 +139,82 @@ print(json.dumps(blocked))
         self.assertEqual(child.wait(timeout=5), -9)
         self.assertEqual(receipt["residual_native_processes_stopped"], 1)
         self.assertEqual(self.test.stat().st_uid, 0)
+
+    def test_new_public_fixture_entries_are_blocked_but_separate_checks_are_writable(self):
+        fixtures = self.workspace / "checkers/testdata/existing"
+        fixtures.mkdir(parents=True)
+        (fixtures / "positive.go").write_text("public baseline\n")
+        self.guard = BenchmarkWriteGuard(self.workspace, self.state,
+                                        ("tests/original.py", "checkers/testdata/existing/positive.go"))
+        self.addCleanup(self.guard.finish)
+        before = {p: (p.stat().st_uid, p.stat().st_gid, p.stat().st_mode)
+                  for p in (fixtures.parent, fixtures, self.workspace / "tests")}
+        self.guard.prepare()
+        script = '''
+import json, os
+from pathlib import Path
+r = Path(os.environ["CONTROL_WORKSPACE"])
+replacement = r / "replacement"
+replacement.mkdir()
+blocked = []
+for action in (lambda: (r / "checkers/testdata/new-checker").mkdir(),
+               lambda: (r / "checkers/testdata/existing/new_case.go").write_text("bad"),
+               lambda: (r / "tests/new_case.py").write_text("bad"),
+               lambda: replacement.replace(r / "checkers/testdata/existing"),
+               lambda: (r / "checkers/testdata/alias").symlink_to(replacement),
+               lambda: (r / "checkers/testdata").chmod(0o777)):
+    try:
+        action()
+    except (PermissionError, FileExistsError):
+        blocked.append(True)
+    else:
+        blocked.append(False)
+replacement.rmdir()
+(r / "source.py").write_text("after\\n")
+(r / "checks").mkdir()
+(r / "checks/new_case_test.go").write_text("new check\\n")
+print(json.dumps(blocked))
+'''
+        result = subprocess.run([*self.guard.command_prefix, sys.executable, "-c", script],
+                                env=self.guard.environment(dict(os.environ, CONTROL_WORKSPACE=str(self.workspace))),
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=15, check=True)
+        self.assertEqual(json.loads(result.stdout), [True] * 6)
+        shell = subprocess.run([*self.guard.command_prefix, "/bin/sh", "-c",
+                                "mkdir -p checkers/testdata/new-checker && printf bad > tests/new_case.py"],
+                               cwd=self.workspace, stdin=subprocess.DEVNULL, capture_output=True, check=False)
+        self.assertNotEqual(shell.returncode, 0)
+        receipt = self.guard.finish()
+        self.assertEqual(receipt["status"], "complete")
+        self.assertTrue(receipt["protected_directory_entries_unchanged"])
+        self.assertEqual(receipt["protected_public_directories"], ["checkers/testdata", "tests"])
+        self.assertFalse((fixtures.parent / "new-checker").exists())
+        self.assertEqual((fixtures / "positive.go").read_text(), "public baseline\n")
+        self.assertTrue((self.workspace / "checks/new_case_test.go").is_file())
+        for path, identity in before.items():
+            self.assertEqual((path.stat().st_uid, path.stat().st_gid, path.stat().st_mode), identity)
+
+    def test_controller_addition_is_detected_and_retained_without_filtering(self):
+        self.guard.prepare()
+        addition = self.workspace / "tests/controller-added.py"
+        addition.write_text("must remain for audit\n")
+        receipt = self.guard.finish()
+        self.assertEqual(receipt["status"], "integrity_failed")
+        self.assertIn("tests/<entries>", receipt["violations"])
+        self.assertFalse(receipt["candidate_filtering"])
+        self.assertEqual(addition.read_text(), "must remain for audit\n")
+
+    def test_public_directory_alias_fails_closed(self):
+        alias = self.workspace / "other"
+        alias.mkdir()
+        (alias / "public.py").write_text("public baseline\n")
+        linked = self.workspace / "testdata"
+        linked.symlink_to(alias, target_is_directory=True)
+        guard = BenchmarkWriteGuard(self.workspace, self.state, ("testdata",))
+        self.addCleanup(guard.finish)
+        with self.assertRaisesRegex(WriteGuardError, "missing or aliased"):
+            guard.prepare()
+        self.assertEqual(guard.finish()["status"], "not_prepared_cleaned")
+        self.assertTrue(linked.is_symlink())
 
     def test_partial_prepare_restores_files_without_removing_existing_namespace(self):
         existing = self.workspace / ".pact"

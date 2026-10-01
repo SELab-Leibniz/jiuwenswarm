@@ -27,7 +27,9 @@ import yaml
 from jiuwenswarm.channels.process_cli.protocol.model import (
     OneShotEvent, OneShotRunInput, OneShotRunResult,
 )
-from .benchmark_write_guard import BenchmarkWriteGuard, WriteGuardError, public_test_paths
+from .benchmark_write_guard import (
+    NATIVE_WRITE_GUARD_POLICY, BenchmarkWriteGuard, WriteGuardError, public_test_directories, public_test_paths,
+)
 
 BASE_COMMIT = "49c9f5b4c66d193e4168bfa9c82c2df025c773f0"
 # At this native pin glob/list_files do not consistently enforce FileGuard's
@@ -539,10 +541,12 @@ class JiuwenWorker:
             if self._benchmark_inventory is None or self._benchmark_inventory[0] != source:
                 self._benchmark_inventory = (source, public_test_paths(source))
             paths = self._benchmark_inventory[1]
-            return {"schema": "jiuwenswarm-benchmark/workspace-policy/v2",
+            return {"schema": "jiuwenswarm-benchmark/workspace-policy/v3",
                     "source_root": str(source), "preserve_existing_tests": True,
                     "automatic_path_rewrite": False, "candidate_filtering": False,
-                    "native_write_guard": "linux-dac/v1", "protected_public_paths": list(paths),
+                    "native_write_guard": NATIVE_WRITE_GUARD_POLICY, "protected_public_paths": list(paths),
+                    "protected_public_directories": list(public_test_directories(paths)),
+                    "public_directory_additions_allowed": False,
                     "public_inventory_sha256": _object_sha256(list(paths))}
         return {"schema": "jiuwenswarm-benchmark/workspace-policy/v1",
                 "source_root": str(self.benchmark_source_root),
@@ -568,7 +572,10 @@ class JiuwenWorker:
         if self.benchmark_write_guard:
             instruction += (
                 "The controller enforces preservation of existing public tests and reserved namespaces "
-                "for file tools, shells and scripts. Leave controller-owned namespace guard entries "
+                "for file tools, shells and scripts. Existing public test and fixture directories are "
+                "read-only, including creation of new files or subdirectories inside them. Put new "
+                "regression checks in a separate checks/ directory outside those public test trees. "
+                "Leave controller-owned namespace guard entries "
                 "untouched. Git mutations, checkpoints and canonical export belong to the controller; "
                 "edit source files and report your changes without managing Git metadata.\n"
             )
@@ -917,7 +924,7 @@ class JiuwenWorker:
             command = [str(self.binary), "--run-json", "-"]
             if self.benchmark_write_guard and not read_only and identity["tool_policy"] != "none":
                 policy = identity["benchmark_workspace_policy"]
-                if policy is None or policy["native_write_guard"] != "linux-dac/v1":
+                if policy is None or policy["native_write_guard"] != NATIVE_WRITE_GUARD_POLICY:
                     raise WriteGuardError("Benchmark write-guard source identity is unavailable.")
                 journals = ()
                 if environment.get("JIUWENSWARM_BENCH_MEMORY_ENABLED") == "1":
