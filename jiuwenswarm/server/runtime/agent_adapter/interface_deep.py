@@ -8892,6 +8892,14 @@ class JiuWenSwarmDeepAdapter:
             )
             return None
 
+    @staticmethod
+    def _build_model_transport_retry_rail(config_base: dict[str, Any]) -> Any | None:
+        from jiuwenswarm.long_horizon.native_transport_retry import build_transport_retry_rail
+
+        # An explicitly enabled policy must fail closed on invalid config or
+        # an unavailable native hook, rather than silently running unprotected.
+        return build_transport_retry_rail(config_base)
+
     def _build_circuit_breaker_rail(self) -> CircuitBreakerRail | None:
         try:
             guard_cfg = (get_config() or {}).get("execution_guard") or {}
@@ -9351,6 +9359,10 @@ class JiuWenSwarmDeepAdapter:
                 {"config_base": config_base},
             ),
             _RailBuildInfo("_heartbeat_rail", self._build_heartbeat_rail),
+            _RailBuildInfo(
+                "_model_transport_retry_rail", self._build_model_transport_retry_rail,
+                {"config_base": config_base},
+            ),
             _RailBuildInfo(
                 "_session_messaging_route_rail",
                 self._build_session_messaging_route_rail,
@@ -17705,6 +17717,11 @@ class JiuWenSwarmDeepAdapter:
             if hasattr(chunk, "type") and hasattr(chunk, "payload"):
                 chunk_type = chunk.type
                 payload = chunk.payload
+
+                if chunk_type == "chat.model_transport_retry":
+                    if not isinstance(payload, dict):
+                        raise ValueError("invalid native transport retry observation")
+                    return {**payload, "event_type": chunk_type}
 
                 if chunk_type == "__interaction__" and contains_permission_interaction(
                     chunk

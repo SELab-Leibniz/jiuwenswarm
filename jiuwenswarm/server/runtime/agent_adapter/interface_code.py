@@ -1538,7 +1538,7 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
         的 rails 同样固定挂载，不按子模式分叉。
         """
         if code_tool_policy(config_base) == "none":
-            return build_tool_free_rails(self)
+            return build_tool_free_rails(self, config_base)
         # 固定 Rails — code 模式特有
         rail_infos = [
             _RailBuildInfo("_runtime_prompt_rail", self._build_runtime_prompt_rail),
@@ -1551,6 +1551,10 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
             _RailBuildInfo("_stream_event_rail", self._build_stream_event_rail),
             _RailBuildInfo("_security_rail", self._build_security_rail),
             _RailBuildInfo("_heartbeat_rail", self._build_heartbeat_rail),
+            _RailBuildInfo(
+                "_model_transport_retry_rail", self._build_model_transport_retry_rail,
+                {"config_base": config_base},
+            ),
             _RailBuildInfo(
                 "_session_messaging_route_rail",
                 self._build_session_messaging_route_rail,

@@ -132,7 +132,7 @@ def build_tool_free_completion_rail() -> Any:
     return NativeToolFreeCompletionRail()
 
 
-def build_tool_free_rails(adapter: Any) -> list[Any]:
+def build_tool_free_rails(adapter: Any, config: Mapping[str, Any] | None = None) -> list[Any]:
     """Retain native non-tool prompt, stream and context capabilities only."""
     rails = []
     for attribute, builder in (
@@ -147,6 +147,11 @@ def build_tool_free_rails(adapter: Any) -> list[Any]:
             raise NativeToolPolicyViolation("required native synthesis rail is unavailable")
         setattr(adapter, attribute, rail)
         rails.append(rail)
+    from jiuwenswarm.long_horizon.native_transport_retry import build_transport_retry_rail
+
+    retry_rail = build_transport_retry_rail(config or {})
+    if retry_rail is not None:
+        rails.append(retry_rail)
     rails.append(build_tool_free_completion_rail())
     rails.append(build_tool_free_rail())
     return rails
