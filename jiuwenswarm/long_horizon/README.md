@@ -146,7 +146,8 @@ P0 和后续 BenchDriver Worker 使用同一个 Work 的原生 session；Reviewe
 Core 候选与原生记忆分开管理。原生会话里记得的事实仍须服从新一轮完整工作输入。
 失败后的 Worker 改动可以按 Core 合同保存，但不能据此宣称验收通过。
 新 Core 使用 work-state/v13，旧 Work 不自动迁移。安装时核对旁边的
-`PACT_CORE_PIN.json`，版本字符串 `0.2.0.dev0` 本身不足以证明使用了新代码。
+`PACT_CORE_PIN.json`。当前开发系列为 `0.3.0.dev1`，提供给集成方的 wheel
+使用 `0.3.0.dev1+g<完整提交 SHA>`；完整版本、源码 SHA 和 wheel 哈希一起固定。
 
 本次本地验证使用真实 Git、Core 和受控原生进程/协议夹具，不调用付费模型。
 这证明接续机制与故障边界，尚不证明真实模型的上下文利用效果或 benchmark 收益。

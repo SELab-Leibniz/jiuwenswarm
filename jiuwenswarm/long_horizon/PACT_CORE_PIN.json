@@ -1,10 +1,10 @@
 {
   "repository": "https://github.com/SELab-Leibniz/pact",
   "base_commit": "e21464732b03a1492b25f5c3e1134860810bd667",
-  "source_commit": "3c320312f871dfd8920282d3a5811be7bc61542b",
-  "version": "0.2.0.dev0",
-  "wheel": "pact_core-0.2.0.dev0-py3-none-any.whl",
-  "wheel_sha256": "c26c2c605454037e1b4b77030e0864561fa9debd79703d2c503b3608ea583649",
+  "source_commit": "f47bd8d4cf22c5b3bcc3ec108938d062be3665cb",
+  "version": "0.3.0.dev1+gf47bd8d4cf22c5b3bcc3ec108938d062be3665cb",
+  "wheel": "pact_core-0.3.0.dev1+gf47bd8d4cf22c5b3bcc3ec108938d062be3665cb-py3-none-any.whl",
+  "wheel_sha256": "495b4ab4fe3d51280dfbb5476691ee19fc5efa6169e0a4084cfd94417b32e543",
   "schemas": {
     "work_state": "pact-runtime/work-state/v13",
     "operation": "pact-runtime/operation/v7",
@@ -17,5 +17,11 @@
     "resume"
   ],
   "source_publication": "local feature commit; not pushed",
-  "validation": "hermetic; no real model benchmark"
+  "validation": "hermetic; no real model benchmark",
+  "base_version": "0.3.0.dev1",
+  "build_provenance": "pact_core/_build_info.json inside wheel; BUILD_PROVENANCE.json beside wheel",
+  "source_transformations": [
+    "pact_core/__init__.py: append full source commit to base version",
+    "pact_core/_build_info.json: generated build identity"
+  ]
 }

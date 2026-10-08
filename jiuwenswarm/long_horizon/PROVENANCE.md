@@ -146,3 +146,23 @@ Local validation: macOS arm64, Python 3.11.15, 1,130 tests and 76 subtests passe
 session-history tests, using controlled native processes and the real Core package.
 The production Python 3.12 image, full native SDK and paid-model benchmark were not
 run here. See `WORKER_RESUME_VALIDATION.md` for commands, boundaries and log hashes.
+
+
+## Current 0.3.0 development-series pin (2026-10-08)
+
+This supersedes the earlier wheel selections for this revision; historical records
+above remain unchanged. The base version is `0.3.0.dev1`; this is not
+the final 0.3.0 release. Core source: `f47bd8d4cf22c5b3bcc3ec108938d062be3665cb`.
+Installed private version: `0.3.0.dev1+gf47bd8d4cf22c5b3bcc3ec108938d062be3665cb`.
+Wheel SHA-256: `495b4ab4fe3d51280dfbb5476691ee19fc5efa6169e0a4084cfd94417b32e543`.
+
+Core's clean-archive builder automatically appends the full source commit to the
+single-source version and generates `pact_core/_build_info.json`. All 66 Python
+files match the source commit after that declared version-only transformation,
+and the installed files match the wheel. Against the preceding fully tested
+Worker-resume wheel, only `pact_core/__init__.py` differs among Python files.
+Package metadata, Python API and CLI report the same full version.
+The exact current selection is `PACT_CORE_PIN.json`.
+
+Version-only checks: Core build/CLI 28 passed; Jiuwen integration 29 passed and
+14 subtests passed. See `VERSION_030_VALIDATION.md`; no new full-suite or model claim.
