@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import hashlib
 import math
 import threading
 import time
@@ -48,7 +49,7 @@ class JiuwenRoleAdapter:
     def __init__(self, *, semantic_role: SemanticRole, worker: Any,
                  outer_loop: asyncio.AbstractEventLoop, campaign_id: str,
                  workspace: Path, output_dir: Path, abort_event: threading.Event,
-                 context_dir: Path | None = None):
+                 context_dir: Path | None = None, worker_session: str = "new"):
         if semantic_role not in SEMANTIC_ROLES:
             raise ValueError(f'Unknown semantic role: {semantic_role}')
         self.id = f'jiuwenswarm-native-{semantic_role}'
@@ -60,15 +61,19 @@ class JiuwenRoleAdapter:
         self.context_dir = context_dir
         self.output_dir = output_dir
         self.abort_event = abort_event
+        self.worker_session = worker_session
         self.sequence = 0
         self.active_task: asyncio.Task | None = None
 
     def probe(self):
         from pact_core.schemas import AdapterProbe
         return AdapterProbe(adapter_id=self.id, available=True,
-                            version='49c9f5b4c66d193e4168bfa9c82c2df025c773f0',
-                            binary_name='jiuwenswarm-native-worker',
-                            isolation_mode='fresh_native_session_per_role_turn')
+                            version=str(getattr(self.worker, 'source_commit', '')),
+                            binary_name=str(getattr(self.worker, 'binary', 'jiuwenswarm-native-worker')),
+                            isolation_mode='persistent_work_worker_session' if self.semantic_role == 'worker' and self.worker_session == 'resume' else 'fresh_native_session_per_role_turn',
+                            profile=str(getattr(self.worker, 'config_template', '')) ,
+                            model=hashlib.sha256(Path(self.worker.config_template).read_bytes()).hexdigest() if hasattr(self.worker, 'config_template') else '',
+                            session_resume=self.semantic_role == 'worker' and self.worker_session == 'resume')
 
     def run_turn(self, request):
         # pact-core uses role='worker' for Manager and Planner, so bind role on
@@ -76,6 +81,10 @@ class JiuwenRoleAdapter:
         expected = 'reviewer' if self.semantic_role == 'reviewer' else 'worker'
         if request.role != expected:
             raise ValueError(f'{self.semantic_role} expected {expected}, got {request.role}')
+        if request.resume_session_id is not None and not self.probe().session_resume:
+            from pact_core.schemas import TurnResult
+            return TurnResult(status='spawn_failed', final_text='', output_source='jiuwenswarm_native', exit_code=None,
+                              stderr_tail='session_resume_failed: role does not support continuation')
         if self.abort_event.is_set():
             raise RoleTurnCancelled('PACT invocation cancelled')
         self.sequence += 1
@@ -104,6 +113,7 @@ class JiuwenRoleAdapter:
             read_only=self.semantic_role != 'worker',
             timeout_seconds=timeout if timeout is not None else request.timeout_seconds,
             session_id=session_id,
+            **({"session_store": self.workspace / ".pact/jiuwen-worker-sessions"} if self.probe().session_resume else {}),
         ))
         self.active_task = task
         try:
@@ -219,7 +229,7 @@ class JiuwenRoleAdapter:
         review_context = None
         call_records = []
         active_directory = directory
-        requested_session_id = None
+        requested_session_id = request.resume_session_id
         correction_attempted = False
         correction_kind = None
         try:
@@ -230,10 +240,10 @@ class JiuwenRoleAdapter:
                 )
                 if review_context is not None:
                     prompt += review_context.prompt
-            result = await self._call_worker(request, prompt, directory)
+            result = await self._call_worker(request, prompt, directory, session_id=requested_session_id)
             self._record_call(call_records, directory, result,
-                              requested_session_id=None, correction_kind=None)
-            session_id = result.session_id
+                              requested_session_id=requested_session_id, correction_kind=None)
+            session_id = result.session_id or None
             status = result.status
             final_text = result.final_text
             if status == 'completed' and not final_text.strip():
@@ -264,7 +274,7 @@ class JiuwenRoleAdapter:
                                           correction_kind=correction_kind)
                         if result.session_id != requested_session_id:
                             raise ValueError('Native format correction changed session identity')
-                        session_id = result.session_id
+                        session_id = result.session_id or None
                         status = result.status
                         final_text = result.final_text
                         if status == 'completed':
@@ -283,8 +293,13 @@ class JiuwenRoleAdapter:
                         'initial_payload_path': str((directory / 'protocol-payload.txt').relative_to(directory.parent)),
                         'final_payload_path': str((active_directory / 'protocol-payload.txt').relative_to(directory.parent)),
                     }, indent=2) + '\n')
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as error:
+            result = getattr(error, 'result', None)
+            session_id = getattr(result, 'session_id', None) or None
             status = 'cancelled'
+            if self.probe().session_resume:
+                return TurnResult(status='cancelled', final_text=getattr(result, 'final_text', ''),
+                    output_source='jiuwenswarm_native', exit_code=None, session_id=session_id)
             recovery = await asyncio.to_thread(
                 preserve_role_budget, campaign_id=self.campaign_id, role=self.semantic_role,
                 workdir=request.workdir, source_workspace=self.workspace, session_id=session_id,
@@ -313,6 +328,15 @@ class JiuwenRoleAdapter:
         finally:
             self._write_call_chain(directory, call_records, correction_attempted=correction_attempted, status=status)
             await asyncio.to_thread(cleanup_review_context, review_context)
+        if self.probe().session_resume:
+            if request.resume_session_id is not None and (session_id != request.resume_session_id
+                    or status == 'spawn_failed'):
+                status, diagnostic = 'spawn_failed', 'session_resume_failed: ' + (diagnostic or 'identity_mismatch')
+            if status in ('budget_exhausted', 'timed_out', 'timeout', 'cancelled') or budget_detail:
+                return TurnResult(status='cancelled' if status == 'cancelled' else 'timeout',
+                    final_text=getattr(result, 'final_text', ''), output_source='jiuwenswarm_native',
+                    exit_code=None, session_id=session_id, stderr_tail=diagnostic,
+                    duration_seconds=time.monotonic() - started)
         if status in ('budget_exhausted', 'timed_out', 'timeout') or budget_detail:
             suspension = await asyncio.to_thread(
                 preserve_role_budget, campaign_id=self.campaign_id,

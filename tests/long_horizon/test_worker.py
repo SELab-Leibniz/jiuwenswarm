@@ -25,7 +25,7 @@ from jiuwenswarm.long_horizon.worker import (
 
 
 _FAKE_HEADER = """
-import json, os, pathlib, signal, subprocess, sys, time
+import json, os, pathlib, signal, subprocess, sys, time, hashlib
 request = json.load(sys.stdin)
 assert sys.argv[1:] == ['--run-json', '-']
 def event(sequence=0, kind='chat.final', payload=None):
@@ -38,6 +38,13 @@ def result(sequence=0, status='completed', exit_code=0, output='done', error=Non
                 status=status, exit_code=exit_code, output=output, error=error,
                 usage={'input_tokens': 11, 'output_tokens': 7})
 def emit(record):
+    if record['type']=='result' and os.environ.get('JIUWENSWARM_WORK_SESSION_RECEIPT'):
+        history = pathlib.Path.cwd() / 'fixture-history.json'
+        history.write_text(json.dumps({'request':request['request_id'], 'prompt':request['input']}))
+        pathlib.Path(os.environ['JIUWENSWARM_WORK_SESSION_RECEIPT']).write_text(json.dumps({
+            'schema':'jiuwenswarm/work-session-checkpoint/v1','request_id':request['request_id'],
+            'session_id':record['session_id'], 'history':{'path':str(history),
+            'sha256':hashlib.sha256(history.read_bytes()).hexdigest(), 'bytes':history.stat().st_size}}))
     print(json.dumps(record), flush=True)
 """
 
@@ -79,7 +86,114 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         request = json.loads((self.root / 'stage/request.json').read_text())
         self.assertIn(str(worker.benchmark_source_root), request['input'])
         self.assertIn('Keep the original baseline unchanged', request['input'])
-        self.assertEqual(self.metadata()['workspace'], str(self.workspace))
+        self.assertEqual(self.metadata()['workspace'], str(self.workspace.resolve()))
+
+    async def test_work_session_survives_new_caller_and_expired_first_deadline(self):
+        worker = self.worker("""
+        history = pathlib.Path.cwd() / 'memory.txt'
+        if request.get('session_id'):
+            assert history.read_text() == 'remembered'
+            emit(result(output='reused history'))
+        else:
+            history.write_text('remembered')
+            emit(result())
+        """)
+        store = self.root / 'registry'
+        first = await self.run_worker(worker, session_store=store)
+        worker._sessions[first.session_id].deadline_monotonic = 0
+        replacement = JiuwenWorker(worker.binary, worker.config_template)
+        second = await replacement.run(stage='test', prompt='continue', workspace=self.workspace,
+            output_dir=self.root / 'second', session_id=first.session_id, session_store=store, timeout_seconds=3)
+        self.assertEqual(second.session_id, first.session_id)
+        self.assertEqual(second.final_text, 'reused history')
+        self.assertEqual(json.loads((self.root / 'second/request.json').read_text())['session_id'], first.session_id)
+
+    async def test_work_session_resumes_after_native_timeout_cleanup(self):
+        worker = self.worker("""
+        history = pathlib.Path.cwd() / 'memory.txt'
+        if request.get('session_id'):
+            assert history.read_text() == 'partial work'
+            emit(result())
+        else:
+            history.write_text('partial work')
+            emit(result(status='timed_out', exit_code=124, error={'code':'TIMEOUT','message':'deadline'}))
+            sys.exit(124)
+        """)
+        store = self.root / 'registry'
+        with self.assertRaises(WorkerTimeoutError) as caught:
+            await self.run_worker(worker, session_store=store)
+        sid = caught.exception.result.session_id
+        replacement = JiuwenWorker(worker.binary, worker.config_template)
+        result = await replacement.run(stage='test', prompt='continue', workspace=self.workspace,
+            output_dir=self.root / 'second', session_id=sid, session_store=store)
+        self.assertEqual(result.session_id, sid)
+
+    async def test_work_session_does_not_recreate_missing_registration(self):
+        worker = self.worker('emit(result())')
+        with self.assertRaises(WorkerConfigurationError) as caught:
+            await self.run_worker(worker, session_store=self.root / 'registry', session_id='unknown')
+        self.assertEqual(caught.exception.code, 'SESSION_RECOVERY_UNPROVEN')
+        self.assertFalse((self.root / 'stage/request.json').exists())
+
+    async def test_work_session_cannot_resume_without_native_terminal_cleanup(self):
+        worker = self.worker("emit(event()); time.sleep(10)")
+        store = self.root / 'registry'
+        with self.assertRaises(WorkerTimeoutError) as caught:
+            await self.run_worker(worker, session_store=store, timeout_seconds=0.1)
+        replacement = JiuwenWorker(worker.binary, worker.config_template)
+        with self.assertRaises(WorkerConfigurationError):
+            await replacement.run(stage='test', prompt='continue', workspace=self.workspace,
+                output_dir=self.root / 'second', session_id=caught.exception.result.session_id, session_store=store)
+        self.assertFalse((self.root / 'second/request.json').exists())
+
+    async def test_work_resume_rejects_changed_native_history(self):
+        worker=self.worker('emit(result())')
+        store=self.root/'registry'
+        first=await self.run_worker(worker,session_store=store)
+        (self.root/'stage/state/fixture-history.json').write_text('changed')
+        with self.assertRaises(WorkerConfigurationError) as caught:
+            await JiuwenWorker(worker.binary,worker.config_template).run(stage='test',prompt='continue',
+                workspace=self.workspace,output_dir=self.root/'second',session_id=first.session_id,session_store=store)
+        self.assertEqual(caught.exception.code,'SESSION_RECOVERY_UNPROVEN')
+
+    async def test_old_launcher_without_durable_receipt_cannot_claim_work_resume(self):
+        worker=self.worker("os.environ.pop('JIUWENSWARM_WORK_SESSION_RECEIPT',None); emit(result())")
+        with self.assertRaises(WorkerProtocolError) as caught:
+            await self.run_worker(worker,session_store=self.root/'registry')
+        self.assertEqual(caught.exception.code,'SESSION_CHECKPOINT_MISSING')
+
+    async def test_persistent_session_lock_rejects_a_second_caller(self):
+        worker=self.worker("if request.get('session_id'): time.sleep(0.3)\nemit(result())")
+        store=self.root/'registry'; first=await self.run_worker(worker,session_store=store)
+        second=asyncio.create_task(worker.run(stage='test',prompt='continue',workspace=self.workspace,
+            output_dir=self.root/'second',session_id=first.session_id,session_store=store))
+        await asyncio.sleep(0.03)
+        with self.assertRaises(WorkerConfigurationError) as caught:
+            await JiuwenWorker(worker.binary,worker.config_template).run(stage='test',prompt='duplicate',
+                workspace=self.workspace,output_dir=self.root/'third',session_id=first.session_id,session_store=store)
+        self.assertEqual(caught.exception.code,'SESSION_BUSY')
+        await second
+
+    async def test_host_timeout_drains_native_cleanup_before_resumable_receipt(self):
+        worker=self.worker("""
+        if request.get('session_id'):
+            emit(result())
+        else:
+            def stop(sig, frame):
+                time.sleep(0.05)
+                emit(result(sequence=1,status='cancelled',exit_code=130,error={'code':'CANCELLED','message':'stop'}))
+                sys.exit(130)
+            signal.signal(signal.SIGTERM,stop)
+            emit(event(payload={'content':'partial'}))
+            time.sleep(10)
+        """)
+        store=self.root/'registry'
+        with self.assertRaises(WorkerTimeoutError) as caught:
+            await self.run_worker(worker,session_store=store,timeout_seconds=1.0)
+        sid=caught.exception.result.session_id
+        result=await JiuwenWorker(worker.binary,worker.config_template).run(stage='test',prompt='continue',
+            workspace=self.workspace,output_dir=self.root/'second',session_id=sid,session_store=store)
+        self.assertEqual(result.session_id,sid)
 
     async def test_workspace_policy_change_refuses_native_session_continuation(self):
         worker = self.worker('emit(result())')

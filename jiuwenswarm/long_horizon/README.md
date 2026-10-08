@@ -6,8 +6,7 @@ Chrys 的长程工作流。入口始终执行 long-horizon，不经过路由分�
 
 参考工作流更新至 Chrys `0561cf0fa584fd56fdcd98c90cca6a5bc1890d95`。
 流程为：冻结 S0 → P0 → S0 上的三路澄清调查、选择与可选代码定位 →
-PACT 输入与公开检查 → 需要时进行 repair → PACT campaign。各个模型阶段和 PACT 的 Manager、
-Planner、Worker、Reviewer 都调用 JiuwenSwarm 原生机器接口；没有隐藏的
+PACT 输入与公开检查 → 需要时进行 repair → PACT campaign。各个模型阶段和 PACT 的 Worker、Reviewer 都调用 JiuwenSwarm 原生机器接口；没有隐藏的
 Chrys solver。`pact-core` 继续负责 campaign 状态、worktree、验证和接纳。
 
 `clarification/` 保留了精确参考版本的 schema、提示、证据校验与快照逻辑，
@@ -58,8 +57,8 @@ P0/repair 各有 6 小时基础预算，澄清及 PACT 输入各有 2 小时，P
 上限约束。同会话格式纠正不重置截止时间。超时、输出预算耗尽、取消或
 信号中断会保留真实会话、候选补丁、Git bundle 和阶段凭据。
 
-PACT 每个 mission 最多 3 个 Worker/Reviewer 回合，与固定 ChrysPact profile
-一致；这一上限不替代完整 campaign 的时间预算。
+PACT 每次调用默认最多 3 个 Worker 轮次，再进行必要的整体 Review；
+这一上限不替代完整 Work 的时间预算。
 
 输出耗尽根据原生流中的实际 usage/finish reason 事件识别，随后终止所属
 进程组。这不保证复现 Chrys 内部在 validator/tool 之前暂停的精确时序；
@@ -68,8 +67,8 @@ PACT 每个 mission 最多 3 个 Worker/Reviewer 回合，与固定 ChrysPact pr
 阶段之间使用独立 Jiuwen session；阶段内有界格式纠正通过原生持久状态
 恢复同一 session，每次使用新 request ID 和独立、不可变的调用凭据。
 Manager 或 Planner 最多补交一次。失败、预算耗尽或中断后不再补交。
-容器假模型探针已观察到跨进程历史恢复，但固定原生版本的异步历史写入
-不提供逐次持久化确认；不能仅凭相同 session ID 声称完整历史已恢复。
+早期容器假模型探针观察到跨进程历史恢复，但不能仅凭相同 session ID 声称
+完整历史已恢复。本次 opt-in Work 续接增加历史落盘确认，详见文末说明。
 Reviewer 返回严格 JSON，由 adapter 保存为 PACT 的传输工件，
 保持 reviewer 的只读工具边界。
 
@@ -119,3 +118,37 @@ S0 澄清 → PACT BenchDriver，不再强制先生成 Goal Contract、Initial P
 公开 verifier。原生 Worker/Reviewer、澄清 side call 共享固定 trial 预算，
 不经过路由。最终输出 `selection.json` 和 Core 封存候选；内部接纳和独立评测
 分开记录。旧入口和旧测评工件保留，不能混入新版本成绩。
+
+## 当前 Core 接口与 Worker 续接（2026-10-08）
+
+新版本接入 PR #22 合并后的 `WorkRuntime`、`DefaultDriver` 和 `BenchDriver`。
+旧的 `CampaignControlPlane`、Manager/Planner 调度接口不再用于 campaign 主路径；
+公开检查覆盖完整原始合同，Reviewer 获得当前候选的累计差异。
+本适配仍使用 `fixed_command` 验收；尚未实现 Jiuwen 的 host execution-evidence
+导出，不能把它标成 `reviewer_evidence` 集成。
+
+原始题目 benchmark 入口可选 `--worker-session resume`，默认 `new`。
+P0 和后续 BenchDriver Worker 使用同一个 Work 的原生 session；Reviewer 始终新建。
+显式 `--work-id` / `--expected-revision` 接续时保持相同模式与原始预算。
+`run_campaign(..., worker_session="resume")` 则支持该 campaign 内各 Worker 轮次续接。
+
+续接不仅传递 session ID：本地登记保存在源项目的 `.pact/jiuwen-worker-sessions/`，
+原生 state 和调用工件保存在外部输出目录。原生进程收尾时等待异步历史写入，
+对根 session 历史落盘并生成 `session-checkpoint.json`。下一调用核对历史摘要、
+调用凭据、执行配置、角色和工作路径；使用新 request ID 及当前调用预算。
+普通格式修正继续使用第一次调用的截止时间，两种模式分开。
+
+超时/取消先停止并排空原生进程，work 模式最多允许 15 秒清理宽限，不增加模型
+执行预算；实际清理耗时仍落入总预算账本。正常收尾留下历史凭据时可以接续。
+强杀、缺失/变更的历史、旧 launcher 未生成凭据、错误 session ID、重复调用方
+均明确失败，不自动另开会话。调用方重启要求保留并挂载原路径；当前未提供路径迁移。
+
+Core 候选与原生记忆分开管理。原生会话里记得的事实仍须服从新一轮完整工作输入。
+失败后的 Worker 改动可以按 Core 合同保存，但不能据此宣称验收通过。
+新 Core 使用 work-state/v13，旧 Work 不自动迁移。安装时核对旁边的
+`PACT_CORE_PIN.json`，版本字符串 `0.2.0.dev0` 本身不足以证明使用了新代码。
+
+本次本地验证使用真实 Git、Core 和受控原生进程/协议夹具，不调用付费模型。
+这证明接续机制与故障边界，尚不证明真实模型的上下文利用效果或 benchmark 收益。
+
+验证命令、结果和适用边界见 [WORKER_RESUME_VALIDATION.md](WORKER_RESUME_VALIDATION.md)。

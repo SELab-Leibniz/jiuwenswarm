@@ -6,8 +6,10 @@ from __future__ import annotations
 
 import asyncio
 import builtins
+import json
 import logging
 import os
+from pathlib import Path
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import replace
@@ -291,7 +293,26 @@ class _MachineRun:
                 ),
             )
         await self.cleanup_step("runtime_close", client.close)
+        if os.environ.get('JIUWENSWARM_WORK_SESSION_RECEIPT') and session_id is not None:
+            await self.cleanup_step('work_session_checkpoint', self._checkpoint_work_session)
         self._record_cleanup_errors()
+
+    async def _checkpoint_work_session(self) -> None:
+        from jiuwenswarm.server.runtime.session.session_history import flush_checked_history
+        if self.cleanup_errors:
+            raise RuntimeError('native cleanup failed before session checkpoint')
+        evidence = await asyncio.to_thread(flush_checked_history, self.writer.session_id)
+        target = Path(os.environ['JIUWENSWARM_WORK_SESSION_RECEIPT'])
+        payload = {'schema': 'jiuwenswarm/work-session-checkpoint/v1',
+                   'session_id': self.writer.session_id, 'request_id': self.writer.request_id,
+                   'history': evidence}
+        temporary = target.with_suffix('.tmp')
+        with temporary.open('x', encoding='utf-8') as stream:
+            os.chmod(temporary, 0o600)
+            json.dump(payload, stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
 
     def _record_cleanup_errors(self) -> None:
         if self.cleanup_errors:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import fcntl
 import json
 import math
 import os
@@ -19,7 +20,7 @@ import signal
 import subprocess
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import yaml
@@ -497,7 +498,7 @@ class JiuwenWorker:
         self.source_commit = source_commit
         self.default_timeout_seconds = default_timeout_seconds
         self.benchmark_source_root: Path | None = None
-        # Deliberately process-local: no implicit cross-workflow restoration.
+        # Format-correction leases are local; work-scoped leases require an explicit durable store.
         self._sessions: dict[str, _SessionLease] = {}
         self._state_directories: set[Path] = set()
 
@@ -518,7 +519,8 @@ class JiuwenWorker:
 
     @staticmethod
     def _receipt_hashes(output_dir: Path) -> dict[str, str | None]:
-        return {name: _sha256(output_dir / name) for name in _RECEIPT_FILES}
+        names = (*_RECEIPT_FILES, 'session-checkpoint.json') if (output_dir / 'session-checkpoint.json').exists() else _RECEIPT_FILES
+        return {name: _sha256(output_dir / name) for name in names}
 
     @property
     def benchmark_workspace_policy(self) -> dict | None:
@@ -549,10 +551,143 @@ class JiuwenWorker:
             instruction += "This role is read-only: inspect evidence without changing any files.\n"
         return instruction + "\nOriginal role request follows verbatim:\n" + prompt
 
+    @staticmethod
+    def _lease_payload(lease: _SessionLease) -> dict:
+        value = asdict(lease)
+        for key in ('state_dir', 'origin_output_dir', 'previous_output_dir'):
+            value[key] = str(value[key])
+        value['immutable_receipts'] = {str(path): hashes for path, hashes in lease.immutable_receipts.items()}
+        value['active'] = False
+        return value
+
+    @staticmethod
+    def _load_lease(value: dict) -> _SessionLease:
+        value = dict(value)
+        for key in ('state_dir', 'origin_output_dir', 'previous_output_dir'):
+            value[key] = Path(value[key])
+        value['immutable_receipts'] = {Path(path): hashes for path, hashes in value['immutable_receipts'].items()}
+        return _SessionLease(**value)
+
+    def _retain_work_call(self, lease, identity, output_dir, timeout) -> tuple[str, _SessionLease] | None:
+        """Only a terminal native receipt proves process cleanup ran; a session ID alone does not."""
+        try:
+            metadata = json.loads((output_dir / 'metadata.json').read_text())
+            terminal = json.loads((output_dir / 'terminal-result.json').read_text())
+            sid = terminal['session_id']
+            if not isinstance(sid, str) or not sid or sid != metadata.get('session_id'):
+                return None
+            if terminal.get('request_id') != metadata.get('request_id') or metadata.get('stream_drain_incomplete'):
+                return None
+            error = terminal.get('error') or {}
+            if error.get('details', {}).get('cleanup_errors') or error.get('code') == 'SESSION_NOT_FOUND':
+                return None
+            if metadata.get('actual_exit_code') != terminal.get('exit_code'):
+                return None
+            hashes = self._receipt_hashes(output_dir)
+            if any(value is None for value in hashes.values()):
+                return None
+            state = Path(metadata['state_dir'])
+            proof = json.loads((output_dir / 'session-checkpoint.json').read_text())
+            history = Path(proof['history']['path'])
+            if (proof.get('schema') != 'jiuwenswarm/work-session-checkpoint/v1'
+                    or proof['request_id'] != metadata['request_id'] or proof['session_id'] != sid
+                    or not history.resolve().is_relative_to(state.resolve())
+                    or _sha256(history) != proof['history']['sha256']):
+                return None
+            if not (state / 'config/config.yaml').is_file():
+                return None
+            if lease is None:
+                lease = _SessionLease(identity=identity, state_dir=state, origin_output_dir=output_dir,
+                    previous_output_dir=output_dir, previous_request_id=metadata['request_id'],
+                    previous_artifacts=hashes, config_sha256=metadata['archived_config_sha256'],
+                    config_environment_sha256=metadata['archived_config_environment_sha256'],
+                    deadline_monotonic=time.monotonic(), deadline_unix=time.time(), budget_seconds=timeout)
+            else:
+                if state != lease.state_dir:
+                    return None
+                lease.previous_output_dir = output_dir
+                lease.previous_request_id = metadata['request_id']
+                lease.previous_artifacts = hashes
+                lease.config_sha256 = metadata['archived_config_sha256']
+                lease.config_environment_sha256 = metadata['archived_config_environment_sha256']
+                lease.continuation_index += 1
+            lease.usable, lease.active = True, False
+            lease.immutable_receipts[output_dir] = hashes
+            return sid, lease
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
+
     async def run(self, *, stage: str, prompt: str, workspace: Path, output_dir: Path,
                   read_only: bool = False, schema: dict | None = None,
                   timeout_seconds: float | None = None, session_id: str | None = None,
-                  tool_policy: str = "configured") -> WorkerResult:
+                  tool_policy: str = 'configured', session_store: Path | None = None) -> WorkerResult:
+        arguments = dict(stage=stage, prompt=prompt, workspace=workspace, output_dir=output_dir,
+            read_only=read_only, schema=schema, timeout_seconds=timeout_seconds,
+            session_id=session_id, tool_policy=tool_policy)
+        if session_store is None:
+            return await self._run(**arguments)
+        if read_only:
+            raise WorkerConfigurationError('Persistent work sessions are Worker-only.',
+                code='INVALID_SESSION_ROLE', output_dir=output_dir)
+        root = Path(session_store).resolve()
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        scope = _object_sha256({'stage': stage, 'workspace': str(Path(workspace).resolve())})
+        registry = root / (scope + '.json')
+        def publish(payload):
+            temp = registry.with_suffix('.tmp')
+            with temp.open('w', encoding='utf-8') as stream:
+                os.chmod(temp, 0o600)
+                json.dump(payload, stream, allow_nan=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp, registry)
+        with (root / (scope + '.lock')).open('a') as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise WorkerConfigurationError('Another caller owns this work session.',
+                    code='SESSION_BUSY', output_dir=output_dir) from None
+            saved = None
+            if session_id is not None:
+                try:
+                    saved = json.loads(registry.read_text())
+                    if saved.get('schema') != 'jiuwenswarm/work-session/v1' or saved['session_id'] != session_id:
+                        raise ValueError('identity')
+                    lease = self._load_lease(saved['lease'])
+                    if saved.get('inflight'):
+                        recovered = self._retain_work_call(lease, lease.identity, Path(saved['inflight']), lease.budget_seconds)
+                        if recovered is None or recovered[0] != session_id:
+                            raise ValueError('unfinished native call')
+                        lease = recovered[1]
+                    proof = json.loads((lease.previous_output_dir / 'session-checkpoint.json').read_text())
+                    if _sha256(Path(proof['history']['path'])) != proof['history']['sha256']:
+                        raise ValueError('native history changed')
+                    self._sessions[session_id] = lease
+                    self._state_directories.add(lease.state_dir)
+                except (OSError, ValueError, TypeError, KeyError):
+                    raise WorkerConfigurationError('No proven resumable native session for this work.',
+                        code='SESSION_RECOVERY_UNPROVEN', output_dir=output_dir) from None
+                publish({'schema': 'jiuwenswarm/work-session/v1', 'session_id': session_id,
+                    'lease': self._lease_payload(lease), 'inflight': str(Path(output_dir).resolve())})
+            try:
+                return await self._run(**arguments, work_scope=True)
+            finally:
+                # _run has drained the native process before returning/raising.
+                sid = session_id
+                try:
+                    metadata = json.loads((Path(output_dir) / 'metadata.json').read_text())
+                    sid = metadata.get('session_id') or sid
+                except (OSError, ValueError):
+                    pass
+                if sid in self._sessions:
+                    lease = self._sessions[sid]
+                    publish({'schema': 'jiuwenswarm/work-session/v1', 'session_id': sid,
+                             'lease': self._lease_payload(lease), 'inflight': None})
+
+    async def _run(self, *, stage: str, prompt: str, workspace: Path, output_dir: Path,
+                  read_only: bool = False, schema: dict | None = None,
+                  timeout_seconds: float | None = None, session_id: str | None = None,
+                  tool_policy: str = "configured", work_scope: bool = False) -> WorkerResult:
         """Run or explicitly correct one successful native role session.
 
         Every result contains only this request's events and usage. Callers
@@ -598,13 +733,13 @@ class JiuwenWorker:
                 raise WorkerConfigurationError("Native session continuation was not admitted.",
                                                code=reason, output_dir=output_dir)
             assert lease is not None
-            if admitted_monotonic >= lease.deadline_monotonic:
+            if not work_scope and admitted_monotonic >= lease.deadline_monotonic:
                 lease.usable = False
                 raise WorkerTimeoutError("The original native session deadline has expired.",
                                          code="TIMEOUT", output_dir=output_dir)
             lease.active = True
-        deadline_monotonic = lease.deadline_monotonic if lease else admitted_monotonic + timeout
-        deadline_unix = lease.deadline_unix if lease else admitted_unix + timeout
+        deadline_monotonic = lease.deadline_monotonic if lease and not work_scope else admitted_monotonic + timeout
+        deadline_unix = lease.deadline_unix if lease and not work_scope else admitted_unix + timeout
         call_deadline_monotonic = min(deadline_monotonic, admitted_monotonic + timeout)
         try:
             result = await self._run_call(
@@ -612,9 +747,12 @@ class JiuwenWorker:
                 read_only=read_only, schema=schema, timeout_seconds=timeout, session_id=session_id,
                 lease=lease, identity=identity, environment=environment, admitted_unix=admitted_unix,
                 admitted_monotonic=admitted_monotonic, deadline_unix=deadline_unix,
-                deadline_monotonic=deadline_monotonic, call_deadline_monotonic=call_deadline_monotonic,
+                deadline_monotonic=deadline_monotonic, call_deadline_monotonic=call_deadline_monotonic, work_scope=work_scope,
             )
             metadata = _decode_object((output_dir / "metadata.json").read_text(encoding="utf-8"))
+            if work_scope and self._retain_work_call(None, identity, output_dir, timeout) is None:
+                raise WorkerProtocolError('Native session has no durable history checkpoint.',
+                    code='SESSION_CHECKPOINT_MISSING', output_dir=output_dir, result=result)
             receipt_hashes = self._receipt_hashes(output_dir)
             if any(value is None for value in receipt_hashes.values()):
                 raise WorkerProtocolError("Native call is missing an immutable receipt artifact.",
@@ -643,7 +781,11 @@ class JiuwenWorker:
             lease.immutable_receipts[output_dir] = receipt_hashes
             return result
         except BaseException:
-            if lease is not None:
+            retained = self._retain_work_call(lease, identity, output_dir, timeout) if work_scope else None
+            if retained is not None and (session_id is None or retained[0] == session_id):
+                sid, lease = retained
+                self._sessions[sid] = lease
+            elif lease is not None:
                 lease.usable = False
             raise
         finally:
@@ -655,7 +797,7 @@ class JiuwenWorker:
                         session_id: str | None, lease: _SessionLease | None, identity: dict,
                         environment: dict[str, str], admitted_unix: float, admitted_monotonic: float,
                         deadline_unix: float, deadline_monotonic: float,
-                        call_deadline_monotonic: float) -> WorkerResult:
+                        call_deadline_monotonic: float, work_scope: bool = False) -> WorkerResult:
         timeout = call_deadline_monotonic - time.monotonic()
         if not workspace.is_dir() or output_dir == workspace or workspace in output_dir.parents:
             raise WorkerConfigurationError("Stage artifacts must be outside the existing project directory.",
@@ -691,7 +833,8 @@ class JiuwenWorker:
             "requested_session_id": session_id, "requested_timeout_seconds": timeout_seconds,
             "schema_sha256": identity["schema_sha256"], "continuation_identity_sha256": _object_sha256(identity),
             "referenced_environment_sha256": identity["referenced_environment_sha256"],
-            "session_budget_seconds": lease.budget_seconds if lease else timeout_seconds,
+            "session_scope": "work" if work_scope else "call",
+            "session_budget_seconds": lease.budget_seconds if lease and not work_scope else timeout_seconds,
             "session_deadline_unix": deadline_unix, "session_deadline_monotonic": deadline_monotonic,
             "call_deadline_monotonic": call_deadline_monotonic,
             "call_admitted_monotonic": admitted_monotonic,
@@ -703,6 +846,7 @@ class JiuwenWorker:
                 "continuation_index": lease.continuation_index + 1 if lease else 0},
             "started_at_unix": admitted_unix, "usage": {},
             "artifacts_redacted": True, "native_state_is_mutable": True,
+            "cleanup_grace_seconds": 15.0 if work_scope else 1.0,
             "native_state_redaction": "diagnostic logs only; private live history is not rewritten",
             "config_snapshots": {"before": "native-config.before.yaml", "after": "native-config.after.yaml"},
         }
@@ -741,6 +885,9 @@ class JiuwenWorker:
                                            code="INVALID_CONFIG", output_dir=output_dir) from None
         metadata["config_template_sha256"] = identity["config_template_sha256"]
         metadata["requested_config_sha256"] = _sha256(output_dir / "native-config.before.yaml")
+        environment.pop('JIUWENSWARM_WORK_SESSION_RECEIPT', None)
+        if work_scope:
+            environment['JIUWENSWARM_WORK_SESSION_RECEIPT'] = str(output_dir / 'session-checkpoint.json')
         environment.update(_state_environment(state))
         metadata["requested_config_environment_sha256"] = _environment_sha256(config_path.read_text(encoding="utf-8"), environment)
         if schema is not None:
@@ -891,7 +1038,7 @@ class JiuwenWorker:
                 interrupted = True
                 process = await finish_cleanup(spawning)
             if interrupted:
-                await finish_cleanup(_terminate_group(process))
+                await finish_cleanup(_terminate_group(process, grace=15.0 if work_scope else 1.0))
                 await finish_cleanup(drain_after_stop(asyncio.gather(read_stdout(), read_stderr(), process.wait())))
             else:
                 task = asyncio.create_task(communicate())
@@ -900,11 +1047,11 @@ class JiuwenWorker:
                     await asyncio.wait_for(asyncio.shield(task), timeout=max(0, call_deadline_monotonic - time.monotonic()))
                 except asyncio.TimeoutError:
                     metadata["timed_out"] = True
-                    await finish_cleanup(_terminate_group(process))
+                    await finish_cleanup(_terminate_group(process, grace=15.0 if work_scope else 1.0))
                     await finish_cleanup(drain_after_stop(task))
                 except asyncio.CancelledError:
                     interrupted = True
-                    await finish_cleanup(_terminate_group(process))
+                    await finish_cleanup(_terminate_group(process, grace=15.0 if work_scope else 1.0))
                     await finish_cleanup(drain_after_stop(task))
         except OSError:
             metadata.update(status="startup_failed", failure_code="STARTUP_FAILED")
@@ -984,7 +1131,9 @@ class JiuwenWorker:
         _json_write(output_dir / "usage.json", result.usage, redactor)
         _json_write(output_dir / "metadata.json", metadata, redactor)
         if interrupted:
-            raise asyncio.CancelledError
+            error = asyncio.CancelledError()
+            error.result = result
+            raise error
         if failure:
             raise failure("Native stage did not complete; inspect the stage artifacts.",
                           code=code, output_dir=output_dir, result=result)

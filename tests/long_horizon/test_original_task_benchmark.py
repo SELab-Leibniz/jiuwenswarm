@@ -20,13 +20,15 @@ class NativeFixture:
         self.binary.write_text('fixture')
         self.config_template.write_text('fixture: true')
         self.calls = []
-    async def run(self, *, stage, prompt, workspace, output_dir, read_only, timeout_seconds):
+        self.requests = []
+    async def run(self, *, stage, prompt, workspace, output_dir, read_only, timeout_seconds, **continuation):
         self.calls.append((stage, workspace, read_only))
+        self.requests.append(continuation)
         output_dir.mkdir(parents=True)
         if not read_only:
             (workspace / 'result.txt').write_text('done\n')
         return SimpleNamespace(status='completed', exit_code=0, final_text='A candidate is ready.',
-                               session_id='native-' + str(len(self.calls)))
+                               session_id=continuation.get('session_id') or ('native-' + str(len(self.calls))))
 
 
 async def clarification(self, *, revision, background, snapshot):
@@ -34,7 +36,8 @@ async def clarification(self, *, revision, background, snapshot):
         selection=ClarificationSelection(), status='completed', empty_reason='requirement_complete')
 
 
-def test_real_core_original_task_p0_clarification_and_sealed_latest_candidate(tmp_path):
+@pytest.mark.parametrize("worker_session", ["new", "resume"])
+def test_real_core_original_task_p0_clarification_and_sealed_latest_candidate(tmp_path, worker_session):
     repo = tmp_path / 'repo';repo.mkdir()
     subprocess.run(['git','init','-q',str(repo)],check=True)
     subprocess.run(['git','-C',str(repo),'config','user.name','Fixture'],check=True)
@@ -47,7 +50,7 @@ def test_real_core_original_task_p0_clarification_and_sealed_latest_candidate(tm
     worker = NativeFixture(tmp_path)
     args = BenchmarkArguments(task=prompt, workdir=repo, output=out, task_id='fixture',trial_id='trial1',
         budget_seconds=60,max_role_calls=20,max_turns=2,turn_timeout_seconds=10,
-        worktree_root=tmp_path / 'worktrees')
+        worktree_root=tmp_path / 'worktrees', worker_session=worker_session)
     with patch('jiuwenswarm.long_horizon.pact.long_horizon_benchmark.ClarificationService.clarify', clarification):
         outcome=asyncio.run(LongHorizonBenchmark(args,worker=worker).run())
     data=json.loads((out/'selection.json').read_text())
@@ -66,6 +69,33 @@ def test_real_core_original_task_p0_clarification_and_sealed_latest_candidate(tm
     assert all(workdir != repo for stage,workdir,ro in worker.calls)
     from pact_core.runtime.export import verify_export
     assert Path(data['export']['patch']).read_text()
+    turns=[(call,request) for call,request in zip(worker.calls,worker.requests) if call[0]=='benchmark-worker']
+    if worker_session=='resume':
+        assert turns[0][1]['session_id'] is None
+        assert turns[1][1]['session_id']=='native-1'
+        assert turns[0][0][1]==turns[1][0][1]
+    else:
+        assert all('session_id' not in request for _,request in turns)
+    assert all(request.get('session_id') is None for call,request in zip(worker.calls,worker.requests)
+               if call[0]=='benchmark-reviewer')
+    if worker_session == 'resume':
+        from dataclasses import replace
+        from pact_core.runtime import WorkRuntime
+        state=WorkRuntime(repo,worktree_root=args.worktree_root).read_work(outcome.work_id)
+        ledger=repo/'.pact/bench/trials/trial1/budget.json'
+        before_budget=json.loads(ledger.read_text())
+        fresh=NativeFixture(tmp_path)
+        resumed=replace(args,work_id=state.work_id,expected_revision=state.revision)
+        with patch('jiuwenswarm.long_horizon.pact.long_horizon_benchmark.ClarificationService.clarify', clarification):
+            second=asyncio.run(LongHorizonBenchmark(resumed,worker=fresh).run())
+        assert not second.internal_failure, json.loads((out/'selection.json').read_text()).get('internal_failure')
+        requests=[request for call,request in zip(fresh.calls,fresh.requests) if call[0]=='benchmark-worker']
+        assert requests and requests[0]['session_id']=='native-1'
+        after_budget=json.loads(ledger.read_text())
+        assert after_budget['started_at']==before_budget['started_at']
+        assert after_budget['deadline']==before_budget['deadline']
+        assert len(after_budget['calls'])>len(before_budget['calls'])
+
 
 
 def test_execution_fingerprint_binds_real_launcher_and_configuration_bytes(tmp_path):

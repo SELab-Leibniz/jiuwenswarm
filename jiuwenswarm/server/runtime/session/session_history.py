@@ -29,6 +29,7 @@ _WRITE_QUEUE: queue.Queue[
 ] = queue.Queue(maxsize=20000)
 _QUEUE_ENQUEUE_LOCK = threading.Lock()
 _WORKER_STARTED = False
+_WRITE_FAILURE_COUNT = 0
 _WORKER_LOCK = threading.Lock()
 _LEGACY_HISTORY_FILENAME = "history.json"
 _JSONL_HISTORY_FILENAME = "history.jsonl"
@@ -988,6 +989,7 @@ def _ensure_worker_started() -> None:
             return
 
         def _worker() -> None:
+            global _WRITE_FAILURE_COUNT
             while True:
                 sid, item, subagent_id, receipt, generation = _WRITE_QUEUE.get()
                 try:
@@ -999,6 +1001,7 @@ def _ensure_worker_started() -> None:
                         lc.write_guard(sid, generation)
                         _write_item(sid, item, subagent_id=subagent_id)
                 except Exception as exc:  # noqa: BLE001
+                    _WRITE_FAILURE_COUNT += 1
                     _settle_history_receipt(receipt, error=exc)
                     logger.warning("history 异步写入失败: %s", exc)
                 else:
@@ -1020,6 +1023,20 @@ def flush_pending_writes(timeout: float = 10) -> bool:
     except queue.Full:
         return False
     return barrier.wait(max(0, deadline - time.monotonic()))
+
+
+def flush_checked_history(session_id: str, timeout: float = 5.0) -> dict[str, Any]:
+    """One-shot continuation boundary: drain writes, surface failures and sync history."""
+    if not flush_pending_writes(timeout) or _WRITE_FAILURE_COUNT:
+        raise RuntimeError("native history persistence did not complete cleanly")
+    path = get_read_history_path(session_id)
+    # A remembered identifier without a durable conversation is not resumable.
+    with _FILE_LOCK, path.open('rb') as stream:
+        data = stream.read()
+        if not data:
+            raise RuntimeError("native session history is empty")
+        os.fsync(stream.fileno())
+    return {'path': str(path.resolve()), 'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
 
 
 def _settle_history_receipt(

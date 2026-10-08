@@ -144,6 +144,7 @@ class BenchmarkArguments:
     worktree_root: Path | None = None
     work_id: str | None = None
     expected_revision: int | None = None
+    worker_session: str = "new"
 
     def __post_init__(self) -> None:
         if (self.work_id is None) != (self.expected_revision is None):
@@ -164,6 +165,7 @@ class BenchmarkArguments:
             turn_timeout_seconds=float(self.turn_timeout_seconds),
             review_interval=self.review_interval,
             review_each_round=self.review_each_round,
+            worker_session=self.worker_session,
         )
 
     @property
@@ -310,6 +312,7 @@ class LongHorizonBenchmark:
         }
         frozen = self._frozen_input(task_bytes, output)
         self._cli_frozen = frozen
+        self._adapters = (self._make_adapter("worker", resolved), self._make_adapter("reviewer", resolved))
         state = self._open_work(runtime, frozen, binding, task_text)
         self._invocation.state = state
         if state.delivery is not None:
@@ -321,7 +324,6 @@ class LongHorizonBenchmark:
             state = runtime.resume(state.work_id, expected_revision=state.revision)
             self._invocation.state = state
         config = args.config()
-        self._adapters = (self._make_adapter("worker", resolved), self._make_adapter("reviewer", resolved))
         worker, reviewer = self._adapters
         budget = BenchBudget(runtime.workspace / ".pact" / "bench" / "trials", config, state.work_id)
         work_inputs: dict[str, object] = {
@@ -442,6 +444,7 @@ class LongHorizonBenchmark:
             raise RuntimeContractError("the Goal must be the original task verbatim")
         advisory: dict[str, object] = {
             "profile": "benchmark",
+            "benchmark_configuration": args.config().payload(),
             "jiuwenswarm_configuration": jiuwenswarm_configuration(args.profile_name, workflow="benchmark"),
             "jiuwenswarm_execution_configuration": binding,
             INPUT_KEY: frozen,
@@ -458,7 +461,7 @@ class LongHorizonBenchmark:
             contract=contract,
             policy=AcceptancePolicy(verify_command=args.verify_command, allow_unverified=False),
             constraints=plan.constraints,
-            advisory=advisory,
+            advisory=advisory, worker_probe=self._adapters[0].probe(),
         )
         self._invocation.state = state
         _require_same(state, frozen, binding, args.profile_name)
@@ -479,7 +482,10 @@ class LongHorizonBenchmark:
         factory = self._adapter_factory or NativeBenchmarkAdapter
         return factory(semantic_role=role, worker=self._worker, outer_loop=self._loop,
             invocation_id=self._invocation.invocation_id, output_dir=self._args.output / "native-roles",
-            abort_event=self._abort, expected_fingerprint=resolved.fingerprint)
+            abort_event=self._abort, expected_fingerprint=resolved.fingerprint,
+            **({'worker_session': self._args.worker_session,
+                'session_store': self._args.workdir.resolve() / '.pact/jiuwen-worker-sessions'}
+               if self._args.worker_session == 'resume' else {}))
 
     # -- bootstrap: S0 → P0 → clarification → first review -------------
 
@@ -577,17 +583,11 @@ class LongHorizonBenchmark:
             return state, False
         prompt = _p0_prompt(state)
         state = self._advance(runtime, state, "p0_started")
-        handle = runtime.begin_execution(state.work_id, expected_revision=state.revision, context=prompt, draft=True)
+        handle = runtime.begin_execution(state.work_id, expected_revision=state.revision, context=prompt, draft=True, worker_probe=self._adapters[0].probe())
         wrapped = BudgetedAdapter(self._adapters[0], budget, purpose="implementation", deadline=deadline)
         try:
             result = wrapped.run_turn(
-                TurnRequest(
-                    role="worker",
-                    prompt=prompt,
-                    workdir=handle.workdir,
-                    timeout_seconds=self._args.turn_timeout_seconds,
-                    artifact_dir=handle.artifact_dir,
-                )
+                handle.worker_request(prompt=prompt, timeout_seconds=self._args.turn_timeout_seconds)
             )
             executed = wrapped.stopped is None
             progress = _bench_progress(state)
@@ -605,11 +605,16 @@ class LongHorizonBenchmark:
             # A refused P0 made no model call; its saved tree equals S0 and a
             # later explicit resume may still run the first implementation.
             lh.update(phase="p0_saved" if executed else "s0_frozen", p0=p0)
-            state = runtime.save_candidate(
-                handle,
-                summary=result.final_text or result.stderr_tail or f"Worker {result.status}; partial files retained.",
-                advisory={**state.advisory, "benchmark": progress, PROGRESS_KEY: lh},
-            )
+            if not wrapped.results:
+                state = runtime.discard_execution(handle, reason='budget_not_admitted')
+                state = runtime.update_advisory(state.work_id, expected_revision=state.revision,
+                    advisory={**state.advisory, "benchmark": progress, PROGRESS_KEY: lh})
+            else:
+                state = runtime.save_candidate(
+                    handle, worker_result=result,
+                    summary=result.final_text or result.stderr_tail or f"Worker {result.status}; partial files retained.",
+                    advisory={**state.advisory, "benchmark": progress, PROGRESS_KEY: lh},
+                )
         finally:
             handle.close()
         self._invocation.state = state
@@ -1257,6 +1262,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-turns", type=int, default=3, help="Worker turns per invocation, P0 included")
     parser.add_argument("--turn-timeout", type=float, default=3600.0)
     parser.add_argument("--review-interval", type=int, default=2)
+    parser.add_argument("--worker-session", choices=("new", "resume"), default="new")
     parser.add_argument("--review-each-round", action="store_true")
     parser.add_argument("--window-seconds", type=float, help="Bound this invocation within the original budget")
     parser.add_argument("--verify", metavar="COMMAND", help="Trusted public verification command (optional)")
@@ -1281,6 +1287,7 @@ def arguments_from_namespace(namespace: argparse.Namespace) -> BenchmarkArgument
         turn_timeout_seconds=namespace.turn_timeout,
         review_interval=namespace.review_interval,
         review_each_round=namespace.review_each_round,
+        worker_session=namespace.worker_session,
         window_seconds=namespace.window_seconds,
         verify_command=namespace.verify.strip() if namespace.verify is not None else None,
         profile_name=namespace.agent,

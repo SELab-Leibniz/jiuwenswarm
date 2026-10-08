@@ -785,3 +785,34 @@ async def test_chat_final_without_complete_flag_still_drains_the_tail(
         assert result.error is None
         assert result.exit_code == 0
         assert result.usage == {"output_tokens": 2}
+
+
+@pytest.mark.asyncio
+async def test_work_session_receipt_is_written_after_cleanup(tmp_path, monkeypatch):
+    from jiuwenswarm.server.runtime.session import session_history
+    target = tmp_path / 'checkpoint.json'
+    monkeypatch.setenv('JIUWENSWARM_WORK_SESSION_RECEIPT', str(target))
+    client = FakeClient()
+    def flush(sid):
+        assert client.calls[-1] == 'close'
+        assert sid == 'runtime-session'
+        return {'path': 'history.jsonl', 'sha256': 'frozen', 'bytes': 10}
+    monkeypatch.setattr(session_history, 'flush_checked_history', flush)
+    result = await _run(client)
+    assert result.status == 'completed'
+    proof=json.loads(target.read_text())
+    assert proof['session_id']=='runtime-session'
+    assert proof['history']['sha256']=='frozen'
+
+
+@pytest.mark.asyncio
+async def test_history_flush_failure_cannot_publish_work_session_receipt(tmp_path, monkeypatch):
+    from jiuwenswarm.server.runtime.session import session_history
+    target=tmp_path/'checkpoint.json'
+    monkeypatch.setenv('JIUWENSWARM_WORK_SESSION_RECEIPT',str(target))
+    def fail(sid): raise OSError('history failed')
+    monkeypatch.setattr(session_history,'flush_checked_history',fail)
+    result=await _run(FakeClient())
+    assert result.status=='failed'
+    assert 'work_session_checkpoint' in result.error.details['cleanup_errors']
+    assert not target.exists()

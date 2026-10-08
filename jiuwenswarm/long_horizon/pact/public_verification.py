@@ -132,31 +132,12 @@ def pinned_commands(
         raise ValueError("public verifier changed after campaign admission")
     _, verification = _parse(raw)
     reader = CampaignReader(workspace, campaign_id)
-    state = reader.read_current_state()
+    reader.read_current_state()
     if json_digest(reader.read_contract()) != contract_sha256:
         raise ValueError("campaign Goal Contract differs from the public verifier")
-    execution = state.get("execution")
-    if not isinstance(execution, dict) or not isinstance(execution.get("loop_id"), str):
-        raise ValueError("campaign has no current execution")
-    expected_loop = build_loop_paths(workspace, execution["loop_id"]).loop_dir.resolve()
-    loop_dir = os.environ.get("PACT_LOOP_DIR")
-    if not loop_dir or Path(loop_dir).resolve() != expected_loop:
-        raise ValueError("verification call does not belong to the current campaign execution")
-    plan = reader.read_plan_revision()
-    frontier = state.get("frontier")
-    selected = frontier.get("selected") if isinstance(frontier, dict) else None
-    missions = plan.get("missions")
-    if not isinstance(missions, list) or not all(isinstance(item, dict) for item in missions):
-        raise ValueError("campaign plan has no valid missions")
-    mission = next((item for item in missions if item.get("id") == selected), None)
-    if not isinstance(mission, dict) or not mission.get("target_ac_ids"):
-        raise ValueError("campaign has no selected mission with acceptance criteria")
-    required = set(mission["target_ac_ids"])
-    acceptance = state.get("acceptance")
-    if not isinstance(acceptance, dict) or not isinstance(acceptance.get("criteria"), list):
-        raise ValueError("campaign acceptance state is missing")
-    required.update(item["id"] for item in acceptance["criteria"] if item.get("status") == "satisfied")
-    checks = [check for check in verification.checks if set(check.target_ac_ids) <= required]
-    if not checks or {ac for check in checks for ac in check.target_ac_ids} != required:
-        raise ValueError("public verifier does not cover the current mission and prior accepted criteria")
-    return [check.command for check in checks]
+    # WorkRuntime owns candidate/execution binding and records the command result.
+    # This public verifier always checks the whole original contract; advisory
+    # mission selection must not narrow acceptance or depend on retired state.
+    required = {item['id'] for item in reader.read_contract()['acceptance_criteria']}
+    verification.validate_coverage(required)
+    return [check.command for check in verification.checks]

@@ -39,7 +39,7 @@ class NativeExecution:
 
 class NativeBenchmarkAdapter:
     def __init__(self, *, semantic_role, worker, outer_loop, invocation_id,
-                 output_dir, abort_event, expected_fingerprint):
+                 output_dir, abort_event, expected_fingerprint, worker_session="new", session_store=None):
         if semantic_role not in {'worker', 'reviewer'}:
             raise ValueError('benchmark supports Worker and Reviewer only')
         self.semantic_role = semantic_role
@@ -47,13 +47,17 @@ class NativeBenchmarkAdapter:
         self.worker, self.outer_loop = worker, outer_loop
         self.invocation_id, self.output_dir = invocation_id, Path(output_dir)
         self.abort_event, self.expected_fingerprint = abort_event, expected_fingerprint
+        self.worker_session = worker_session
+        self.session_store = session_store
         self.sequence = 0
         self.active_task = None
         self.configuration_failure = None
         self.budget_failure = None
 
     def probe(self):
-        return AdapterProbe(adapter_id=self.id, available=True, version=self.worker.source_commit)
+        return AdapterProbe(adapter_id=self.id, available=True, version=self.worker.source_commit,
+            model=self.expected_fingerprint, profile='Code', binary_name=str(self.worker.binary),
+            session_resume=self.semantic_role == 'worker' and self.worker_session == 'resume' and self.session_store is not None)
 
     def run_turn(self, request):
         return asyncio.run_coroutine_threadsafe(self._turn(request), self.outer_loop).result()
@@ -66,6 +70,9 @@ class NativeBenchmarkAdapter:
 
     async def _turn(self, request):
         started = time.monotonic()
+        if request.resume_session_id is not None and not self.probe().session_resume:
+            return TurnResult(status='spawn_failed', final_text='', output_source='jiuwenswarm_native', exit_code=None,
+                stderr_tail='session_resume_failed: role does not support native continuation')
         if self.abort_event.is_set():
             return TurnResult(status='cancelled', final_text='', output_source='jiuwenswarm_native', exit_code=None)
         actual = NativeExecution.from_worker(self.worker, 'Code').fingerprint
@@ -73,7 +80,7 @@ class NativeBenchmarkAdapter:
             self.configuration_failure = 'native execution configuration changed'
             return TurnResult(status='spawn_failed', final_text='', output_source='jiuwenswarm_native', exit_code=None)
         self.sequence += 1
-        directory = self.output_dir / self.semantic_role / f'{self.sequence:04d}'
+        directory = self.output_dir / self.invocation_id / self.semantic_role / f'{self.sequence:04d}'
         prompt = request.prompt + (
             '\nDo not reset shared refs or source HEAD. '
             'Never write, copy, sync, install, or rebuild candidate changes into the original source checkout, '
@@ -95,11 +102,14 @@ class NativeBenchmarkAdapter:
         try:
             self.active_task = asyncio.create_task(self.worker.run(
                 stage='benchmark-' + self.semantic_role, prompt=prompt, workspace=request.workdir,
-                output_dir=directory, read_only=self.semantic_role == 'reviewer', timeout_seconds=timeout))
+                output_dir=directory, read_only=self.semantic_role == 'reviewer', timeout_seconds=timeout,
+                **({'session_id': request.resume_session_id, 'session_store': self.session_store}
+                   if self.probe().session_resume else {})))
             native = await self.active_task
             status = 'completed' if native.status == 'completed' and native.exit_code == 0 else native.status
             text = native.final_text
-        except asyncio.CancelledError:
+        except asyncio.CancelledError as exc:
+            native = getattr(exc, 'result', None)
             status = 'cancelled'
         except Exception as exc:
             native = getattr(exc, 'result', None)
@@ -109,10 +119,14 @@ class NativeBenchmarkAdapter:
                 self.budget_failure = diagnostic
             if 'Configuration' in diagnostic or 'Protocol' in diagnostic:
                 self.configuration_failure = diagnostic
+                if request.resume_session_id is not None:
+                    diagnostic = 'session_resume_failed: ' + diagnostic + ':' + str(getattr(exc, 'code', 'unknown'))
         finally:
             self.active_task = None
         if status not in {'completed', 'timeout', 'cancelled', 'output_missing', 'spawn_failed'}:
             status = 'spawn_failed'
+        if request.resume_session_id is not None and getattr(native, 'session_id', None) != request.resume_session_id:
+            status, diagnostic = 'spawn_failed', 'session_resume_failed: identity_mismatch'
         capture = ReviewDecisionCapture(verdict_status='not_applicable', plan_challenge_status='not_applicable')
         if acceptance:
             capture = parse_review_decision(text, existed=bool(text))
@@ -125,7 +139,7 @@ class NativeBenchmarkAdapter:
         return TurnResult(status=status, final_text=text if status == 'completed' else '',
             output_source='jiuwenswarm_native', exit_code=0 if status == 'completed' else None,
             stderr_tail=diagnostic, duration_seconds=time.monotonic()-started,
-            session_id=getattr(native, 'session_id', None), review_decision=capture)
+            session_id=getattr(native, 'session_id', None) or None, review_decision=capture)
 
 
 def record_work_budget(*, workspace, work_id, revision, detail, artifacts):

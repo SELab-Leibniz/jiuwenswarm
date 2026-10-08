@@ -76,7 +76,7 @@ class DefaultRunOptions:
         if workflow != "default":
             raise RuntimeContractError("existing work is not the default workflow")
         if self.profile_name is not None and self.profile_name != profile:
-            raise RuntimeContractError("existing work uses a different Chrys profile")
+            raise RuntimeContractError("existing work uses a different Jiuwen profile")
         self.validate_policy(state)
         config = DriverConfiguration.parse(state.advisory.get("driver_configuration"))
         for key, value in self._driver_values().items():
@@ -96,7 +96,7 @@ def read_jiuwenswarm_configuration(state: WorkSnapshot) -> tuple[Workflow, str]:
         or not isinstance(raw.get("profile_name"), str)
         or not raw["profile_name"]
     ):
-        raise RuntimeContractError("unsupported or missing Chrys work configuration")
+        raise RuntimeContractError("unsupported or missing Jiuwen work configuration")
     return raw["workflow"], raw["profile_name"]
 
 

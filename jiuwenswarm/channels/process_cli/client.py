@@ -6,7 +6,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from jiuwenswarm.runtime import AgentRuntime
 
 _PROCESS_CLI_CHANNEL_ID = "process_cli"
 
@@ -26,6 +25,7 @@ def _require_process_cli_channel(channel_id: object) -> None:
 
 
 if TYPE_CHECKING:
+    from jiuwenswarm.runtime import AgentRuntime
     from collections.abc import AsyncIterator, Iterable, Mapping
 
     from jiuwenswarm.common.schema.agent import AgentRequest
@@ -77,6 +77,7 @@ class InProcessRuntimeClient:
         if runtime is not None:
             self._runtime = runtime
             return
+        from jiuwenswarm.runtime import AgentRuntime
         self._runtime = AgentRuntime()
 
     @property

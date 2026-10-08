@@ -52,14 +52,22 @@ def _git(workspace: Path, *arguments: str) -> bytes:
 
 def prepare_review_context(workspace: Path, prompt: str, artifact_dir: Path) -> ReviewContext | None:
     """Capture real round/cumulative diffs from the pinned machine-generated header."""
-    if not prompt.startswith('# PACT Reviewer Round '):
+    if not prompt.startswith(('# PACT Reviewer Round ', '# PACT Work Review\n')):
         # PACT's later decision format-repair turn explicitly forbids reopening
         # review and contains its own inline artifacts, not checkpoint IDs.
         return None
     # Everything after <plan> may contain untrusted task/model text. Never
     # search those sections for a convenient hash or Git command.
     header = prompt.split('<plan>', 1)[0]
-    match = _HEADER.match(header)
+    if prompt.startswith('# PACT Work Review\n'):
+        # The current Core header supplies whole-work evidence only. There is
+        # no claim that an invented per-round baseline is the previous Worker.
+        pattern = (r"\A# PACT Work Review\n\n[^\n]+\nInspect the actual checkout at `(?P<output>" + _SHA
+            + r")` and the cumulative changes\nwith `git diff (?P<baseline>" + _SHA + r")\.\.(?P=output)`\.")
+        current = re.match(pattern, prompt)
+        match = ({**current.groupdict(), 'input': current['baseline']} if current else None)
+    else:
+        match = _HEADER.match(header)
     if match is None:
         raise ValueError('Pinned Reviewer checkpoint header is malformed')
     workspace = workspace.resolve(strict=True)
@@ -72,14 +80,19 @@ def prepare_review_context(workspace: Path, prompt: str, artifact_dir: Path) -> 
     artifacts = artifact_dir / 'read-only-review-evidence'
     artifacts.mkdir(parents=True, exist_ok=False)
     records = {}
-    for name, base in [('round.diff', match['input']), ('cumulative.diff', match['baseline'])]:
+    whole_work = prompt.startswith('# PACT Work Review\n')
+    diffs = [('cumulative.diff', match['baseline'])]
+    if not whole_work:
+        diffs.insert(0, ('round.diff', match['input']))
+    for name, base in diffs:
         data = _git(workspace, 'diff', '--no-ext-diff', '--no-textconv', '--binary',
                     '--full-index', f'{base}..{output}', '--')
         (artifacts / name).write_bytes(data)
         records[name] = {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
     manifest = {
         'schema': 'jiuwenswarm/pact-read-only-review-evidence/v1',
-        'input_checkpoint': match['input'], 'baseline_checkpoint': match['baseline'],
+        'input_checkpoint': None if whole_work else match['input'], 'baseline_checkpoint': match['baseline'],
+        'scope': 'whole_work' if whole_work else 'round',
         'output_checkpoint': output, 'files': records,
     }
     (artifacts / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
@@ -100,13 +113,14 @@ def prepare_review_context(workspace: Path, prompt: str, artifact_dir: Path) -> 
             destination.write_bytes(source.read_bytes())
             destination.chmod(0o400)
         relative = directory.relative_to(workspace).as_posix()
+        round_briefing = '' if whole_work else f'- Round delta: `{relative}/round.diff`\n'
         briefing = (
             '\n\n## Controller-captured review evidence for file-only tools\n\n'
             'This Reviewer has read-only file tools. It cannot execute the Git or test commands '
             'mentioned by the generic PACT prompt, or write to the external scratch directory. '
             'Use read_file on the following files inside the assigned candidate checkout. The host '
             'captured these exact Git diffs after checking HEAD against the output checkpoint:\n'
-            f'- Round delta: `{relative}/round.diff`\n'
+            f'{round_briefing}'
             f'- Cumulative delta: `{relative}/cumulative.diff`\n'
             f'- Checkpoint IDs and byte hashes: `{relative}/manifest.json`\n\n'
             'An empty diff is valid evidence of no changes between those commits. Inspect candidate '

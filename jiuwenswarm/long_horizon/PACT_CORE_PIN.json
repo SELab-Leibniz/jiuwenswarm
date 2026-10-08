@@ -1,0 +1,21 @@
+{
+  "repository": "https://github.com/SELab-Leibniz/pact",
+  "base_commit": "e21464732b03a1492b25f5c3e1134860810bd667",
+  "source_commit": "3c320312f871dfd8920282d3a5811be7bc61542b",
+  "version": "0.2.0.dev0",
+  "wheel": "pact_core-0.2.0.dev0-py3-none-any.whl",
+  "wheel_sha256": "c26c2c605454037e1b4b77030e0864561fa9debd79703d2c503b3608ea583649",
+  "schemas": {
+    "work_state": "pact-runtime/work-state/v13",
+    "operation": "pact-runtime/operation/v7",
+    "work_execution": "pact-core/work-execution/v2"
+  },
+  "evidence_mode": "fixed_command",
+  "worker_session_default": "new",
+  "worker_session_supported": [
+    "new",
+    "resume"
+  ],
+  "source_publication": "local feature commit; not pushed",
+  "validation": "hermetic; no real model benchmark"
+}

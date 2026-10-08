@@ -307,7 +307,8 @@ class PactTest(unittest.IsolatedAsyncioTestCase):
                 if kwargs['stage'] == 'pact_reviewer':
                     self.assertTrue(kwargs['read_only'])
                     paths = re.findall(r'`(\.pact-io/jiuwen-readonly-review-[^`]+/(?:round|cumulative)\.diff)`', kwargs['prompt'])
-                    self.assertEqual(len(paths), 2)
+                    self.assertEqual(len(paths), 1)
+                    self.assertTrue(paths[0].endswith("cumulative.diff"))
                     for relative in paths:
                         path = kwargs['workspace'] / relative
                         self.assertTrue(path.resolve().is_relative_to(kwargs['workspace'].resolve()))
@@ -319,7 +320,7 @@ class PactTest(unittest.IsolatedAsyncioTestCase):
                 return result
         result = await self.campaign(EvidenceWorker())
         self.assertEqual(result['status'], 'completed')
-        self.assertEqual(len(inspected), 2)
+        self.assertEqual(len(inspected), 1)
         self.assertTrue(all(not path.exists() for path in inspected))
         role = self.output / 'roles/reviewer/0001'
         self.assertIn('answer.txt', (self.output / 'review-evidence/0001/read-only-review-evidence/cumulative.diff').read_text())

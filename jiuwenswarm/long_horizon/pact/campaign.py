@@ -1,6 +1,6 @@
 """Run pinned pact-core with native Jiuwen semantic role adapters.
 
-The four-role control seam follows Chrys
+The native role transport derives from Chrys
 6fcfb3321892735631b49f33236b1e2a988ded2d:src/chrys/pact/campaign.py.
 Only pact-core owns canonical Work State, gates, checkpoints and promotion.
 """
@@ -101,15 +101,18 @@ async def run_campaign(worker: Any, workspace: Path, contract_path: Path,
                        plan_path: Path, public_verification_path: Path,
                        output_dir: Path, max_rounds: int = 3,
                        role_timeout_seconds: float = 10800, *,
-                       control_plane: Any = None) -> dict:
-    """Run one fresh campaign; budget suspension preserves the candidate then raises.
+                       control_plane: Any = None, worker_session: str = "new") -> dict:
+    """Run fresh Work through the public Runtime and DefaultDriver APIs.
 
     ``output_dir`` is the suite's ``pact`` directory outside the candidate
     workspace. Returned public evidence paths are relative to its parent.
     This function has no independent benchmark grader and never sets resolved.
     """
-    from pact_core.runtime import (AdapterDecisionProvider, AdapterPlanningProvider,
-                                   CampaignControlPlane, CampaignRunRequest)
+    from pact_core.runtime import AcceptancePolicy, WorkRuntime
+    from pact_core.runtime.configuration import DriverConfiguration
+    from pact_core.runtime.driver import DefaultDriver
+    from pact_core.runtime.planning import initial_plan_payload, validate_initial_plan
+    from pact_core.runtime.schemas import goal_contract_criteria, validate_goal_contract
     from .public_verification import command_from_clarification
     workspace, output_dir = Path(workspace).resolve(strict=True), Path(output_dir).resolve()
     if output_dir == workspace or workspace in output_dir.parents:
@@ -136,19 +139,34 @@ async def run_campaign(worker: Any, workspace: Path, contract_path: Path,
         role: JiuwenRoleAdapter(semantic_role=role, worker=worker, outer_loop=event_loop,
                                campaign_id=campaign_id, workspace=workspace,
                                output_dir=output_dir, abort_event=abort,
-                               context_dir=Path(contract_path).parent)
+                               context_dir=Path(contract_path).parent, worker_session=worker_session)
         for role in SEMANTIC_ROLES
     }
-    request = CampaignRunRequest(
-        workspace=workspace, contract_file=admitted_contract, plan_file=admitted_plan,
-        worker=adapters['worker'], reviewer=adapters['reviewer'],
-        verify_command=verify_command, allow_unverified=False,
-        max_rounds=max_rounds, turn_timeout_seconds=role_timeout_seconds,
-        campaign_id=campaign_id, worktree_root=output_dir / 'worktrees',
-        planning_provider=AdapterPlanningProvider(adapters['planner'], timeout_seconds=role_timeout_seconds),
-        decision_provider=AdapterDecisionProvider(adapters['manager'], timeout_seconds=role_timeout_seconds),
-    )
-    control_plane = control_plane or CampaignControlPlane()
+    runtime = control_plane or WorkRuntime(workspace, worktree_root=output_dir / 'worktrees')
+    contract = validate_goal_contract(json.loads(admitted_contract.read_text()))
+    plan = validate_initial_plan(json.loads(admitted_plan.read_text()),
+        acceptance_criterion_ids=tuple(row['id'] for row in goal_contract_criteria(contract)))
+    configuration = DriverConfiguration(max_rounds=max_rounds, turn_timeout_seconds=role_timeout_seconds, worker_session=worker_session)
+
+    def run_current_work():
+        state = runtime.create_work(request_id=campaign_id, work_id=campaign_id,
+            contract=contract, policy=AcceptancePolicy(verify_command=verify_command),
+            constraints=plan.constraints, worker_probe=adapters["worker"].probe(),
+            advisory={'plan': initial_plan_payload(plan), 'driver_configuration': configuration.payload()})
+        driver = DefaultDriver(runtime, adapters['worker'], adapters['reviewer'])
+        state = driver.run(state.work_id, expected_revision=state.revision, max_turns=max_rounds,
+                           stop_requested=abort.is_set)
+        # A bounded implementation window ends with independent whole-work review
+        # when public checks pass. Only Core acceptance can authorize delivery.
+        progress = state.advisory.get('default_driver', {})
+        if (state.status == 'active' and state.verification is not None
+                and state.verification.status == 'passed'
+                and progress.get('worker_status') == 'completed' and not abort.is_set()):
+            state = runtime.request_review(state.work_id, expected_revision=state.revision,
+                reason='Review the candidate after the bounded implementation window.')
+            state = driver.run(state.work_id, expected_revision=state.revision, max_turns=1,
+                               stop_requested=abort.is_set)
+        return state
     prior_loops = {path.name for path in (workspace / '.pact' / 'loops').glob('*') if path.is_dir()}
     completion = event_loop.create_future()
     def settled(result, error):
@@ -160,7 +178,7 @@ async def run_campaign(worker: Any, workspace: Path, contract_path: Path,
             completion.set_exception(error)
     def run():
         try:
-            result = control_plane.run(request)
+            result = run_current_work()
         except BaseException as error:
             event_loop.call_soon_threadsafe(settled, None, error)
         else:
@@ -213,8 +231,8 @@ async def run_campaign(worker: Any, workspace: Path, contract_path: Path,
             })
     terminal = {
         'schema': RESULT_SCHEMA, 'status': result.status,
-        'campaign_id': result.campaign_id, 'revision': result.revision,
-        'next_action': result.next_action,
+        'campaign_id': result.work_id, 'revision': result.revision,
+        'next_action': 'none' if result.status == 'completed' else 'continue_work',
         'artifact_ref': str((output_dir / 'campaign').relative_to(output_dir.parent)),
         'public_verification': evidence,
     }

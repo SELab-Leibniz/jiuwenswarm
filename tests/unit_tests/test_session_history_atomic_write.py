@@ -89,3 +89,20 @@ def test_atomic_write_failure_preserves_history_and_cleans_temporary_files(
     assert list(tmp_path.iterdir()) == [path]
     assert len(opened_files) == (failure_stage != "open")
     assert all(fh.closed for fh in opened_files)
+
+
+def test_checked_history_flush_requires_durable_nonempty_history(tmp_path, monkeypatch):
+    path=tmp_path/'history.jsonl';path.write_text('{"content":"retained"}\n')
+    monkeypatch.setattr(session_history,'flush_pending_writes',lambda timeout: True)
+    monkeypatch.setattr(session_history,'_WRITE_FAILURE_COUNT',0)
+    monkeypatch.setattr(session_history,'get_read_history_path',lambda sid: path)
+    proof=session_history.flush_checked_history('session')
+    import hashlib
+    assert proof['sha256']==hashlib.sha256(path.read_bytes()).hexdigest()
+    monkeypatch.setattr(session_history,'_WRITE_FAILURE_COUNT',1)
+    with pytest.raises(RuntimeError,match='persistence'):
+        session_history.flush_checked_history('session')
+    monkeypatch.setattr(session_history,'_WRITE_FAILURE_COUNT',0)
+    monkeypatch.setattr(session_history,'flush_pending_writes',lambda timeout: False)
+    with pytest.raises(RuntimeError,match='persistence'):
+        session_history.flush_checked_history('session')

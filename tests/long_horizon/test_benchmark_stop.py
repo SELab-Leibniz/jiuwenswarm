@@ -47,12 +47,12 @@ class NativeSourceOwnershipTests(unittest.IsolatedAsyncioTestCase):
         ):
             for role in ('worker', 'reviewer'):
                 adapter = NativeBenchmarkAdapter(
-                    semantic_role=role, worker=State(run=run), outer_loop=None,
+                    semantic_role=role, worker=State(run=run, source_commit='fixture', binary=Path('fixture')), outer_loop=None,
                     invocation_id='control', output_dir=Path(directory),
                     abort_event=asyncio.Event(), expected_fingerprint='frozen',
                 )
                 result = await adapter._turn(State(
-                    prompt='Original public task', review_mode='acceptance',
+                    prompt='Original public task', review_mode='acceptance', resume_session_id=None,
                     timeout_seconds=30, deadline=None, workdir=Path(directory), artifact_dir=None,
                 ))
                 self.assertEqual(result.status, 'completed')

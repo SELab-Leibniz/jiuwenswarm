@@ -116,3 +116,33 @@ It retains the source base `a2e50f6709caaa29e3bbd87b114d981a543ae00c`,
 Chrys12e0a2a8's public export patch and the owning-Core directory cleanup
 repair. Its public source revision and control receipts belong to the host's
 release provenance; the binary remains outside this repository.
+
+
+## Current PR22 + work-session treatment (2026-10-08)
+
+This section supersedes the earlier Core wheel pins for this source revision.
+Jiuwen integration base: `6cfe9025af9cca10d6eab2d6ff470949745dd9b0`.
+Core base: merged PR #22, `e21464732b03a1492b25f5c3e1134860810bd667`.
+Core feature source: `3c320312f871dfd8920282d3a5811be7bc61542b` (local, not yet pushed).
+Wheel SHA-256: `c26c2c605454037e1b4b77030e0864561fa9debd79703d2c503b3608ea583649`.
+The machine-readable selection is `PACT_CORE_PIN.json`; the wheel remains external.
+A clean git-archive wheel equals the tested wheel byte-for-byte, and all 66 Python
+source files match both the source commit and the installed validation package.
+
+Campaign uses WorkRuntime + DefaultDriver; original-task benchmarks use BenchDriver.
+Acceptance remains fixed_command. Jiuwen host execution-evidence export is not part
+of this treatment, so reviewer_evidence is not claimed.
+
+Opt-in Worker resume changes native process cleanup: it drains and fsyncs root
+session history, emits a checkpoint receipt, and requires its integrity on reuse.
+Only cleanly finalized calls can be resumed after timeout/cancellation. A registry,
+per-work caller lock and retained native state allow a new caller invocation to
+continue the same session without resetting the trial deadline. Reviewer stays fresh.
+The native agent and integration are therefore modified; results must not be
+attributed to the unmodified upstream implementation.
+
+Local validation: macOS arm64, Python 3.11.15, 1,130 tests and 76 subtests passed,
+1 skipped. Tests cover the complete long_horizon suite, process_cli suite and atomic
+session-history tests, using controlled native processes and the real Core package.
+The production Python 3.12 image, full native SDK and paid-model benchmark were not
+run here. See `WORKER_RESUME_VALIDATION.md` for commands, boundaries and log hashes.
