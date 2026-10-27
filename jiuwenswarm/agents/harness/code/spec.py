@@ -43,6 +43,7 @@ from jiuwenswarm.common.config import (
     is_subagent_runtime_enabled,
 )
 from jiuwenswarm.common.tool_ownership import register_tool
+from jiuwenswarm.long_horizon.native_tool_free import code_tool_policy
 
 CODE_RAIL_BUNDLE = "jiuwenswarm.code.rail_bundle"
 CODE_TOOL_BUNDLE = "jiuwenswarm.code.tool_bundle"
@@ -243,6 +244,7 @@ def convert_code_config_to_deep_agent_spec(
     config_snapshot["react"] = react_snapshot
     mode_config = config_snapshot.get("modes", {}).get("code", {})
     mode_config = mode_config if isinstance(mode_config, dict) else {}
+    tool_free = code_tool_policy(config_snapshot) == "none"
     configured_rails = list(mode_config.get("rails") or [])
     configured_tools = list(mode_config.get("tools") or [])
     configured_subagents = react_snapshot.get("subagents")
@@ -273,13 +275,13 @@ def convert_code_config_to_deep_agent_spec(
                 params={"configured_rails": configured_rails},
             )
         ],
-        tools=[
+        tools=[] if tool_free else [
             BuiltinToolSpec(
                 type=CODE_TOOL_BUNDLE,
                 params={"configured_tools": configured_tools},
             )
         ],
-        subagents=[
+        subagents=[] if tool_free else [
             SubAgentSpec(
                 agent_card=AgentCard(
                     id=f"{card.id}.code-subagents",
@@ -290,16 +292,20 @@ def convert_code_config_to_deep_agent_spec(
                 factory_kwargs=subagent_factory_kwargs,
             )
         ],
-        enable_task_loop=(
+        enable_task_loop=False if tool_free else (
             bool(react_snapshot.get("enable_task_loop", True))
             or get_skill_evolution_enabled(config_snapshot)
         ),
-        enable_subagent_runtime=is_subagent_runtime_enabled(config_snapshot),
+        enable_subagent_runtime=False if tool_free else is_subagent_runtime_enabled(config_snapshot),
+        **({"enable_sys_operation": False, "enable_tool_resilience_rail": False,
+            "enable_skill_discovery": False, "enable_task_planning": False,
+            "skills": [], "mcps": [], "add_general_purpose_agent": False}
+           if tool_free else {}),
         **({"max_iterations": max_iterations} if max_iterations is not None else {}),
         workspace=WorkspaceSpec(root_path=workspace_root or "./", language=language),
-        sys_operation=_sys_operation_spec(sys_operation, sys_operation_card),
+        sys_operation=None if tool_free else _sys_operation_spec(sys_operation, sys_operation_card),
         language=language,
-        enable_read_image_multimodal=enable_read_image_multimodal,
+        enable_read_image_multimodal=False if tool_free else enable_read_image_multimodal,
         # Preserve create_deep_agent()'s historical default for code mode.
         restrict_to_sandbox=True,
         context_engine_config=context_engine_config,
@@ -307,7 +313,7 @@ def convert_code_config_to_deep_agent_spec(
         auto_create_workspace=False,
         completion_timeout=completion_timeout,
         progressive_tool=ProgressiveToolSpec(
-            enabled=get_progressive_tool_enabled(config_snapshot)
+            enabled=False if tool_free else get_progressive_tool_enabled(config_snapshot)
         ),
     )
     return spec, context

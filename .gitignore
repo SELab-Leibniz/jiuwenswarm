@@ -106,3 +106,9 @@ report/index.html
 /sub_agents/
 /context/
 /.plans/
+
+# Local long-horizon validation and dependencies
+.tools/
+.sources/
+.suite-venv/
+.suite-runs/
