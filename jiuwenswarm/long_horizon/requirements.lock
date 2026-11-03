@@ -1,0 +1,4 @@
+# Added runtime dependency for the migrated snapshot Git-ignore filter.
+# Same version and wheel hash as the unmodified JiuwenSwarm uv.lock.
+# Install with --require-hashes --no-deps; pact-core is supplied separately.
+pathspec==1.1.1 --hash=sha256:a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189

@@ -1,3 +1,5 @@
+> This private fork adds a fixed [long-horizon integration](jiuwenswarm/long_horizon/README.md) on top of upstream `49c9f5b4c66d193e4168bfa9c82c2df025c773f0`. Its versioned treatment is distinct from the unmodified upstream agent.
+
 <p align="center">
   <img src="docs/assets/images/logo.svg" alt="JiuwenSwarm Logo" width="160" />
 </p>

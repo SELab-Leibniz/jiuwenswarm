@@ -1,0 +1,23 @@
+# Copyright (c) 2026 Chrys. All rights reserved.
+# Protocol ported from Chrys 6fcfb3321892735631b49f33236b1e2a988ded2d.
+"""Model boundary; the only implementation here invokes JiuwenSwarm."""
+
+from __future__ import annotations
+
+from typing import Protocol
+
+from .types import (
+    ClarificationSelection, ClarificationSelectorDecision, LegacyV1ClarificationProposal,
+    PactAcceptanceCriterion, PactGoalContract, PactInitialPlan, ProposalModelResult,
+)
+from .verification import PublicVerification
+
+
+class ClarificationModelRunner(Protocol):
+    async def propose(self, prompt: str, *, sample_index: int) -> ProposalModelResult: ...
+    async def select(self, prompt: str) -> tuple[ClarificationSelectorDecision, dict[str, object]]: ...
+    async def propose_legacy_v1(self, prompt: str, *, sample_index: int) -> tuple[LegacyV1ClarificationProposal, dict[str, object]]: ...
+    async def select_legacy_v1(self, prompt: str) -> tuple[ClarificationSelection, dict[str, object]]: ...
+    async def generate_pact_goal_contract(self, prompt: str) -> tuple[PactGoalContract, dict[str, object]]: ...
+    async def generate_pact_initial_plan(self, prompt: str) -> tuple[PactInitialPlan, dict[str, object]]: ...
+    async def generate_public_verification(self, prompt: str, *, acceptance_criteria: tuple[PactAcceptanceCriterion, ...]) -> tuple[PublicVerification, dict[str, object]]: ...
