@@ -58,7 +58,21 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         executable = self.root / "fake-native"
         executable.write_text(f"#!{sys.executable}\n" + textwrap.dedent(_FAKE_HEADER) + textwrap.dedent(body))
         executable.chmod(0o755)
-        return JiuwenWorker(executable, self.template, default_timeout_seconds=3)
+        worker = JiuwenWorker(executable, self.template, default_timeout_seconds=3)
+        real_command = worker._native_command
+
+        def native_command(*, state, read_only, reviewer_launch_policy=None):
+            # Read-only stages launch the pinned companion bootstrap through the native
+            # interpreter. Keep asserting that contract, then run the fake executable.
+            command, proof = real_command(state=state, read_only=read_only,
+                                          reviewer_launch_policy=reviewer_launch_policy)
+            if read_only and reviewer_launch_policy is None:
+                assert command[-4:] == ["-m", "jiuwenswarm.long_horizon.native_entry", "--run-json", "-"], command
+                command = [str(executable), "--run-json", "-"]
+            return command, proof
+
+        worker._native_command = native_command
+        return worker
 
     async def run_worker(self, worker: JiuwenWorker, **kwargs):
         return await worker.run(stage="test", prompt="inspect task", workspace=self.workspace,
