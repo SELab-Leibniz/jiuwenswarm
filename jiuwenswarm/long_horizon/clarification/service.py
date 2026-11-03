@@ -72,65 +72,90 @@ class ClarificationService:
         revision: RequirementRevision,
         background: str,
         snapshot: WorkspaceSnapshot,
+        base_evidence: str | None = None,
     ) -> ClarificationResult:
         if self._strategy == "legacy-v1-exact":
             return await self._clarify_legacy_v1(
                 revision=revision,
                 background=background,
                 snapshot=snapshot,
+                base_evidence=base_evidence,
             )
         started = time.monotonic()
-        base_evidence = await asyncio.to_thread(collect_base_evidence, snapshot, revision.rendered)
-        proposal_calls = [
-            self._model.propose(
-                build_proposal_prompt(revision.rendered, background, base_evidence, sample_index),
-                sample_index=sample_index,
-            )
-            for sample_index in range(1, PROPOSAL_COUNT + 1)
-        ]
-        raw_proposal_results = await asyncio.gather(*proposal_calls, return_exceptions=True)
+        if base_evidence is None:
+            base_evidence = await asyncio.to_thread(collect_base_evidence, snapshot, revision.rendered)
+        async def indexed_proposal(sample_index):
+            try:
+                result = await self._model.propose(
+                    build_proposal_prompt(revision.rendered, background, base_evidence, sample_index),
+                    sample_index=sample_index,
+                )
+                return sample_index, result
+            except Exception as error:
+                return sample_index, error
+
+        proposal_tasks = [asyncio.create_task(indexed_proposal(i)) for i in range(1, PROPOSAL_COUNT + 1)]
         proposal_results: list[ClarificationProposal] = []
         proposal_indices: list[int] = []
         investigations: list[ProposalInvestigation] = []
         usage: list[dict[str, object]] = []
         warnings: list[str] = []
-        for sample_index, item in enumerate(raw_proposal_results, start=1):
-            if isinstance(item, (SideCallBudgetExhausted, SideCallInterrupted, SideCallIntegrityError, asyncio.CancelledError)):
-                raise item
-            if isinstance(item, BaseException):
-                detail = f"{type(item).__name__}: {item}"[:600]
-                warnings.append(f"clarification proposer {sample_index} failed: {detail}")
-                investigations.append(
-                    ProposalInvestigation(
-                        sample_index=sample_index,
-                        status="failed",
-                        investigation_attempts=1,
-                        synthesis_attempts=0,
-                        validation_errors=[detail],
+        warnings_by_sample = {}
+        usage_by_sample = {}
+        try:
+            for completed in asyncio.as_completed(proposal_tasks):
+                sample_index, item = await completed
+                sample_warnings: list[str] = []
+                sample_usage: list[dict[str, object]] = []
+                warnings_by_sample[sample_index] = sample_warnings
+                usage_by_sample[sample_index] = sample_usage
+                if isinstance(item, (SideCallBudgetExhausted, SideCallInterrupted, SideCallIntegrityError, asyncio.CancelledError)):
+                    raise item
+                if isinstance(item, BaseException):
+                    detail = f"{type(item).__name__}: {item}"[:600]
+                    sample_warnings.append(f"clarification proposer {sample_index} failed: {detail}")
+                    investigations.append(
+                        ProposalInvestigation(
+                            sample_index=sample_index,
+                            status="failed",
+                            investigation_attempts=1,
+                            synthesis_attempts=0,
+                            validation_errors=[detail],
+                        )
                     )
-                )
-                continue
-            if not isinstance(item, ProposalModelResult):
-                detail = "returned an invalid result type"
-                warnings.append(f"clarification proposer {sample_index} {detail}")
-                investigations.append(
-                    ProposalInvestigation(
-                        sample_index=sample_index,
-                        status="failed",
-                        investigation_attempts=1,
-                        synthesis_attempts=0,
-                        validation_errors=[detail],
+                    continue
+                if not isinstance(item, ProposalModelResult):
+                    detail = "returned an invalid result type"
+                    sample_warnings.append(f"clarification proposer {sample_index} {detail}")
+                    investigations.append(
+                        ProposalInvestigation(
+                            sample_index=sample_index,
+                            status="failed",
+                            investigation_attempts=1,
+                            synthesis_attempts=0,
+                            validation_errors=[detail],
+                        )
                     )
-                )
-                continue
-            investigations.append(item.investigation)
-            usage.extend(dict(details) for details in item.usage_details)
-            if item.proposal is None:
-                detail = item.error or "investigation or synthesis did not produce a valid proposal"
-                warnings.append(f"clarification proposer {sample_index} failed: {detail}"[:700])
-                continue
-            proposal_results.append(item.proposal)
-            proposal_indices.append(sample_index)
+                    continue
+                investigations.append(item.investigation)
+                sample_usage.extend(dict(details) for details in item.usage_details)
+                if item.proposal is None:
+                    detail = item.error or "investigation or synthesis did not produce a valid proposal"
+                    sample_warnings.append(f"clarification proposer {sample_index} failed: {detail}"[:700])
+                    continue
+                proposal_results.append(item.proposal)
+                proposal_indices.append(sample_index)
+        finally:
+            for task in proposal_tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*proposal_tasks, return_exceptions=True)
+        warnings = [item for index in sorted(warnings_by_sample) for item in warnings_by_sample[index]]
+        usage = [item for index in sorted(usage_by_sample) for item in usage_by_sample[index]]
+        ordered = sorted(zip(proposal_indices, proposal_results), key=lambda row: row[0])
+        proposal_indices = [index for index, _ in ordered]
+        proposal_results = [proposal for _, proposal in ordered]
+        investigations.sort(key=lambda row: row.sample_index)
         proposals = proposal_results
         if len(proposals) < MIN_VALID_PROPOSALS:
             return ClarificationResult(
@@ -293,10 +318,12 @@ class ClarificationService:
         revision: RequirementRevision,
         background: str,
         snapshot: WorkspaceSnapshot,
+        base_evidence: str | None = None,
     ) -> ClarificationResult:
         """Execute the source-equivalent proposal/selector path from the historical +1 run."""
         started = time.monotonic()
-        base_evidence = await asyncio.to_thread(collect_base_evidence, snapshot, revision.rendered)
+        if base_evidence is None:
+            base_evidence = await asyncio.to_thread(collect_base_evidence, snapshot, revision.rendered)
         proposal_calls = [
             self._model.propose_legacy_v1(
                 build_legacy_v1_proposal_prompt(revision.rendered, background, base_evidence, sample_index),
@@ -345,6 +372,7 @@ class ClarificationService:
         snapshot: WorkspaceSnapshot,
         localization_hints: str = "",
         generate_public_verification: bool = False,
+        base_evidence: str | None = None,
     ) -> tuple[PactRuntimeInput, tuple[dict[str, object], ...]]:
         """Generate and validate the optional PACT pair after ΔR is already safe.
 
@@ -357,7 +385,8 @@ class ClarificationService:
         goal_contract, goal_usage = await self._model.generate_pact_goal_contract(
             build_pact_goal_contract_prompt(revision.rendered, background, result.delta)
         )
-        base_evidence = await asyncio.to_thread(collect_base_evidence, snapshot, revision.rendered)
+        if base_evidence is None:
+            base_evidence = await asyncio.to_thread(collect_base_evidence, snapshot, revision.rendered)
         plan_prompt = build_pact_initial_plan_prompt(
             goal_contract,
             base_evidence,

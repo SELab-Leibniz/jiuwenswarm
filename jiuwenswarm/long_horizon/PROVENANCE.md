@@ -116,3 +116,28 @@ It retains the source base `a2e50f6709caaa29e3bbd87b114d981a543ae00c`,
 Chrys12e0a2a8's public export patch and the owning-Core directory cleanup
 repair. Its public source revision and control receipts belong to the host's
 release provenance; the binary remains outside this repository.
+
+## Sync with the long-horizon-controller companion (2026-11-03)
+
+`jiuwenswarm/long_horizon` now matches, file for file, the reviewed companion
+archived in SELab-Leibniz/long-horizon-controller main
+`b4e437deefd6fc624273b865209d1ead40ba5cbf` under `vendor/jiuwen-lh-native`
+(`SOURCE.json` sha256 `dc3aa8dc506a1a3088770abcbe075d3ba27a44a9e83e71ff34b0f3c4bf79cd9b`; snapshot
+`jiuwen-granular-resume-20261030T0230Z/native`). Every pinned file was copied
+only after its sha256 matched `SOURCE.json`. This is the source the LH main
+rerun evaluates through runtime r22/r24. Changes since the previous revision:
+read-only stage write isolation, PID-scoped process kill guard
+(`process_kill_guard.py`), strict public verification and cancellation
+contracts in `pact/verify_shim.py` and `pact/benchmark_native.py`, and the
+worker/native entry updates they require.
+
+The separate `vendor/jiuwen-nonstream-guard` overlay patches installed SDK
+files (filesystem and task-loop executor) at runtime and is not part of this
+tree.
+
+`pact/benchmark_native.py` now imports `long_horizon.review_transport` and
+`long_horizon.turn_environment` from the long-horizon-controller source. The LH
+runtime already puts the controller source on `PYTHONPATH`; run
+`tests/long_horizon` the same way (controller `src` on `PYTHONPATH`, plus the
+externally supplied `pact_core` wheel), for example
+`PYTHONPATH=<controller>/src uv run --with <pact_core wheel> pytest tests/long_horizon`.

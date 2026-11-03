@@ -108,7 +108,7 @@ def collect_base_evidence(snapshot: WorkspaceSnapshot, requirement: str) -> str:
                 rg = find_rg() or shutil.which("rg")
                 if rg is None:
                     continue
-                command = [rg, "-n", "-i", "-F", "--glob", "!.jiuwenswarm_snapshot_manifest.json", term, str(view)]
+                command = [rg, "--no-config", "--sort=path", "-n", "-i", "-F", "--glob", "!.jiuwenswarm_snapshot_manifest.json", term, str(view)]
             try:
                 result = subprocess.run(  # noqa: S603 - executable and arguments are code-owned
                     command,
