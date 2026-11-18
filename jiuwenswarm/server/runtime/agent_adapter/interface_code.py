@@ -57,6 +57,12 @@ from openjiuwen.harness.tools import (
     is_paid_search_enabled,
 )
 from openjiuwen.harness.tools.worktree import WorktreeConfig, WorktreeRail
+from jiuwenswarm.long_horizon.native_tool_free import (
+    NativeToolPolicyViolation,
+    assert_tool_free_agent,
+    build_tool_free_rails,
+    code_tool_policy,
+)
 
 from jiuwenswarm.agents.harness.common.a4p_execution_context import (
     AUTHORIZATION_EXECUTION_CONTEXTS,
@@ -846,7 +852,9 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
         model: Model,
     ) -> tuple[DeepAgentSpec, code_agent_spec.CodeBuildContext]:
         """Translate the current config.yaml snapshot into one code agent spec."""
-        if self._sys_operation is None or self._sys_operation_card is None:
+        if code_tool_policy(config_base) != "none" and (
+            self._sys_operation is None or self._sys_operation_card is None
+        ):
             raise RuntimeError("code DeepAgent sys_operation is not initialized")
         agent_card = AgentCard(name=self._agent_name, id=_AGENT_CARD_ID)
         context_model_state = _ContextEngineModelState(
@@ -961,6 +969,9 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
             config_base["permissions"] = {
                 **(config_base.get("permissions") or {}), "enabled": True,
             }
+        self._native_tool_policy = code_tool_policy(config_base)
+        if self._native_tool_policy == "none" and (spec is not None or agent_definition is not None):
+            raise NativeToolPolicyViolation("tool-free profile cannot mount a custom Agent spec")
         self._config_base_cache = config_base.copy()
         self._refresh_multimodal_configs(config_base)
         config = config_base.get('react', {}).copy()
@@ -1009,7 +1020,12 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
         # 权限护栏由 openjiuwen PermissionInterruptRail + ToolPermissionHost 接管；
         # 无需初始化 jiuwenswarm 内置 PermissionEngine（已弃用）。
 
-        if spec is not None and spec.sys_operation is not None:
+        if self._native_tool_policy == "none":
+            # Pinned agent-core supports a genuinely absent SysOperation. Do
+            # not register its filesystem/shell resources for synthesis.
+            self._sys_operation = None
+            self._sys_operation_card = None
+        elif spec is not None and spec.sys_operation is not None:
             self._activate_custom_spec_sys_operation(spec.sys_operation)
         else:
             sys_operation = self._create_sys_operation()
@@ -1071,7 +1087,7 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
         # the first ProgressiveTool index already contains the graph tools.
         # A caller-supplied Spec remains authoritative and receives no implicit
         # tools from the product config.
-        if spec is None:
+        if spec is None and self._native_tool_policy != "none":
             self._sync_symphony_tools_for_runtime(config_base)
 
         # 改动3：让 agent 初始化（ensure_initialized）在独立线程 + 独立事件循环里跑，
@@ -1123,6 +1139,12 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
             "_jiuwenswarm_project_dir",
             initial_workspace,
         )
+
+        if self._native_tool_policy == "none":
+            assert_tool_free_agent(self._instance)
+            # No cron, MCP, user rail, skill or plugin loader may mount tools
+            # after the native no-tools spec has been materialized.
+            return
 
         # Code multimodal tools consume the cached model configs through their
         # configured builders; context_engine_config and completion_timeout are
@@ -1407,6 +1429,16 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
         reload_scopes: set[str] | None = None,
     ) -> None:
         """Hot-apply a newly generated DeepAgentSpec to the existing code agent."""
+        current_policy = getattr(self, "_native_tool_policy", "configured")
+        requested_policy = code_tool_policy(config_base) if config_base is not None else current_policy
+        if current_policy != requested_policy:
+            raise NativeToolPolicyViolation("changing tool policy requires a new native session")
+        if current_policy == "none":
+            if self._instance is not None:
+                assert_tool_free_agent(self._instance)
+            # Synthesis config is immutable within a process/session lease.
+            # Native continuation starts a new process from the same config.
+            return
         scope_set = set(reload_scopes) if reload_scopes else set()
         if scope_set == {"multimodal"}:
             await super().reload_agent_config(
@@ -1719,6 +1751,8 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
         Code 模式固定包含 LspRail、ProjectMemoryRail、CodingMemoryRail。plan 相关
         的 rails 同样固定挂载，不按子模式分叉。
         """
+        if code_tool_policy(config_base) == "none":
+            return build_tool_free_rails(self, config_base)
         # 固定 Rails — code 模式特有
         rail_infos = [
             _RailBuildInfo("_runtime_prompt_rail", self._build_runtime_prompt_rail),
@@ -1731,6 +1765,10 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
             _RailBuildInfo("_stream_event_rail", self._build_stream_event_rail),
             _RailBuildInfo("_security_rail", self._build_security_rail),
             _RailBuildInfo("_heartbeat_rail", self._build_heartbeat_rail),
+            _RailBuildInfo(
+                "_model_transport_retry_rail", self._build_model_transport_retry_rail,
+                {"config_base": config_base},
+            ),
             _RailBuildInfo(
                 "_session_messaging_route_rail",
                 self._build_session_messaging_route_rail,
@@ -2589,6 +2627,39 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
 
     # ─── Runtime config ──────────────────────────
 
+    @staticmethod
+    def _parse_stream_chunk(
+        chunk: Any,
+        *,
+        _has_streamed_content: bool = False,
+        _stage: str = "",
+        _parent_session_id: str | None = None,
+    ) -> dict | None:
+        # The pinned shared parser only forwards explicitly known observation
+        # types. Preserve the native no-tools rail's proof as its own event,
+        # rather than letting the fallback convert it into assistant text.
+        if getattr(chunk, "type", None) == "chat.tool_policy":
+            payload = getattr(chunk, "payload", None)
+            if not isinstance(payload, dict):
+                raise NativeToolPolicyViolation("invalid native tool-policy event")
+            return {**payload, "event_type": "chat.tool_policy"}
+        return JiuWenSwarmDeepAdapter._parse_stream_chunk(
+            chunk,
+            _has_streamed_content=_has_streamed_content,
+            _stage=_stage,
+            _parent_session_id=_parent_session_id,
+        )
+
+    async def _ensure_chat_extensions(self, request: Any) -> Any:
+        if getattr(self, "_native_tool_policy", "configured") != "none":
+            return await super()._ensure_chat_extensions(request)
+        params = request.params if isinstance(request.params, dict) else {}
+        if any(params.get(key) for key in ("agent_template_name", "plugin_names", "mcp")):
+            raise NativeToolPolicyViolation("extensions cannot be mounted in tool-free synthesis")
+        if self._instance is not None:
+            assert_tool_free_agent(self._instance)
+        return None
+
     async def _update_runtime_config(self, runtime_config: "JiuWenSwarmDeepAdapter._RuntimeConfig") -> None:
         """Code 模式 runtime config: ProjectMemoryRail 语言同步 + rail 模式切换."""
         if self._instance is None:
@@ -2671,6 +2742,10 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
         agent_md_prompt_rail = getattr(self, "_agent_md_prompt_rail", None)
         if agent_md_prompt_rail is not None:
             agent_md_prompt_rail.set_runtime_paths(cwd=task_cwd)
+        if getattr(self, "_native_tool_policy", "configured") == "none":
+            assert_tool_free_agent(self._instance)
+            self._update_prompt_for_mode(runtime_config.mode, resolved_language)
+            return
         eternal_conversation_rail = getattr(self, "_eternal_conversation_rail", None)
         if eternal_conversation_rail is not None:
             self._eternal_conversation_enabled = runtime_config.eternal_conversation_enabled
@@ -2783,6 +2858,8 @@ class JiuwenSwarmCodeAdapter(JiuWenSwarmDeepAdapter):
         Returns:
             The cards of every successfully registered configured tool.
         """
+        if code_tool_policy(self._active_code_config()) == "none":
+            return []
         tool_cards = []
 
         config_base = self._active_code_config()
