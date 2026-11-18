@@ -112,11 +112,11 @@ graph_policy = runtime['memory_policy'] if real_graph else {'http_url': graph_ur
     'receipt_sha256': 'a' * 64, 'source_corpus': 'public-control'}
 graph_url = graph_policy['http_url']
 journal = root / "memory-calls.jsonl"
-os.environ.update(JIUWENSWARM_BENCH_MEMORY_ENABLED="1", CONTEXTGRAPH_HTTP_URL=graph_url,
-                  CONTEXTGRAPH_EXPECTED_RECEIPT_SHA256=graph_policy['receipt_sha256'],
-                  CONTEXTGRAPH_EXPECTED_CORPUS=graph_policy['source_corpus'], CONTEXTGRAPH_CALL_AUDIT_PATH=str(journal))
-from jiuwenswarm.long_horizon import contextgraph
-contextgraph.admit(root / "memory-admission.json")
+os.environ.update(JIUWENSWARM_MEMGRAPH_ENABLED="1", MEMGRAPH_HTTP_URL=graph_url,
+                  MEMGRAPH_EXPECTED_RECEIPT_SHA256=graph_policy['receipt_sha256'],
+                  MEMGRAPH_EXPECTED_CORPUS=graph_policy['source_corpus'], MEMGRAPH_CALL_AUDIT_PATH=str(journal))
+from jiuwenswarm.long_horizon import memgraph
+memgraph.admit(root / "memory-admission.json")
 config = configure.native_config(profile, 90, {"enabled": True, "mode": "frozen-cross-corpus",
                                                "writeback": False, "http_url": graph_url,
                                                "receipt_sha256": graph_policy['receipt_sha256'],

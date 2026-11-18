@@ -331,6 +331,11 @@ def _write_stderr(stream: TextIO, message: str) -> None:
 
 
 def main() -> None:
+    if "--lh" in sys.argv[1:]:
+        # ``--lh`` 走 long-horizon 控制器流程；不带该参数时保持原有行为。
+        from jiuwenswarm.lh.cli import main as lh_main, split_lh_flag
+
+        sys.exit(lh_main(split_lh_flag(sys.argv[1:])[1], prog="jiuwenswarm-process --lh"))
     parser = build_parser()
     args = parser.parse_args()
     if (

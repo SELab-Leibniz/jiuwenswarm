@@ -292,8 +292,8 @@ def _source_identity(source_commit: str, binary: Path) -> dict:
         "native_entry_sha256": _sha256(Path(__file__).with_name("native_entry.py")),
         "native_tool_free_sha256": _sha256(Path(__file__).with_name("native_tool_free.py")),
         "native_transport_retry_sha256": _sha256(Path(__file__).with_name("native_transport_retry.py")),
-        "contextgraph_reader_sha256": _sha256(Path(__file__).with_name("contextgraph.py")),
-        "contextgraph_mcp_sha256": _sha256(Path(__file__).with_name("contextgraph_mcp.py")),
+        "memgraph_reader_sha256": _sha256(Path(__file__).with_name("memgraph.py")),
+        "memgraph_mcp_sha256": _sha256(Path(__file__).with_name("memgraph_mcp.py")),
         "native_code_spec_sha256": _sha256(root / "jiuwenswarm/agents/harness/code/spec.py"),
         "native_code_interface_sha256": _sha256(root / "jiuwenswarm/server/runtime/agent_adapter/interface_code.py"),
         "native_deep_interface_sha256": _sha256(root / "jiuwenswarm/server/runtime/agent_adapter/interface_deep.py"),
@@ -927,8 +927,8 @@ class JiuwenWorker:
                 if policy is None or policy["native_write_guard"] != NATIVE_WRITE_GUARD_POLICY:
                     raise WriteGuardError("Benchmark write-guard source identity is unavailable.")
                 journals = ()
-                if environment.get("JIUWENSWARM_BENCH_MEMORY_ENABLED") == "1":
-                    journal = environment.get("CONTEXTGRAPH_CALL_AUDIT_PATH", "")
+                if environment.get("JIUWENSWARM_MEMGRAPH_ENABLED") == "1":
+                    journal = environment.get("MEMGRAPH_CALL_AUDIT_PATH", "")
                     if not journal:
                         raise WriteGuardError("Configured graph MCP diagnostic journal is unavailable.")
                     journals = (Path(journal),)

@@ -2,7 +2,7 @@
 
 The role vocabulary follows Chrys 6fcfb332's semantic-search contract. This
 implementation uses Jiuwen's native read/search tools; it does not implement
-Chrys's semantic index, CodeGraph, embeddings, or ContextGraph services.
+Chrys's semantic index, CodeGraph, embeddings, or MemGraph services.
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ class LocalizationInterrupted(RuntimeError):
         self.code = "INTERRUPTED"
 
 
-class ContextGraphLocalization(Protocol):
+class MemGraphLocalization(Protocol):
     """Optional external dependency boundary, disabled in the baseline.
 
     Providers own retrieval and release admission. They return only hints from
@@ -350,7 +350,7 @@ def _validate_locations(payload: Any, root: Path, files: Mapping[str, str], obse
 
 async def localize(
     worker: Any, snapshot: Any, requirement: str, output_dir: Path,
-    timeout_seconds: float, *, contextgraph: ContextGraphLocalization | None = None,
+    timeout_seconds: float, *, memgraph: MemGraphLocalization | None = None,
 ) -> dict[str, Any]:
     """Locate against S0 only; retain honest degradation and budget evidence."""
     from .clarification.event_evidence import snapshot_workspace
@@ -371,7 +371,7 @@ async def localize(
         "snapshot_manifest_sha256": snapshot.manifest_hash,
         "requirement_sha256": hashlib.sha256(requirement.encode()).hexdigest(),
         "implementation": "jiuwenswarm-native-read-search", "memory": "disabled",
-        "semantic_index": "disabled", "codegraph": "disabled", "contextgraph": "disabled",
+        "semantic_index": "disabled", "codegraph": "disabled", "memgraph": "disabled",
         "locations": [], **{role: [] for role in ROLES}, "warnings": [],
     }
     worker_result = None
@@ -379,15 +379,15 @@ async def localize(
     try:
         files = _snapshot_files(snapshot, root)
         hints: list[dict[str, str]] = []
-        if contextgraph is not None:
-            external = await asyncio.wait_for(contextgraph.candidates(requirement=requirement, snapshot_id=snapshot.snapshot_id, workspace=root, timeout_seconds=timeout_seconds), timeout=timeout_seconds)
+        if memgraph is not None:
+            external = await asyncio.wait_for(memgraph.candidates(requirement=requirement, snapshot_id=snapshot.snapshot_id, workspace=root, timeout_seconds=timeout_seconds), timeout=timeout_seconds)
             if external.get("snapshot_id") != snapshot.snapshot_id or not external.get("release_id"):
-                raise ValueError("external ContextGraph hints lack snapshot-bound release identity")
+                raise ValueError("external MemGraph hints lack snapshot-bound release identity")
             for hint in external.get("locations", []):
                 path = _relative(hint.get("file_path"), root)
                 if path in files:
                     hints.append({"file_path": path})
-            result["contextgraph"] = {"mode": "external-hints", "release_id": external["release_id"]}
+            result["memgraph"] = {"mode": "external-hints", "release_id": external["release_id"]}
         remaining = timeout_seconds - (time.monotonic() - started)
         if remaining <= 0:
             raise LocalizationBudgetExhausted({"status": "timed_out", "usage": {}}, output_dir)
@@ -459,4 +459,4 @@ async def localize(
     return result
 
 
-__all__ = ["ContextGraphLocalization", "LOCALIZATION_SCHEMA", "LocalizationBudgetExhausted", "LocalizationInterrupted", "localize"]
+__all__ = ["MemGraphLocalization", "LOCALIZATION_SCHEMA", "LocalizationBudgetExhausted", "LocalizationInterrupted", "localize"]

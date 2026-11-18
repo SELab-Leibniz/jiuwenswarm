@@ -15,8 +15,10 @@ Chrys solver。`pact-core` 继续负责 campaign 状态、worktree、验证和�
 文件、行范围和实际工具证据。初版关闭外部记忆、写回、CodeGraph 加速与
 semantic index，配置和输出均记录这些选择。
 
-另行命名的图实验可显式开启只读 ContextGraph MCP。图构建、embedding、
-检索和 release 服务仍由 ContextGraph 仓库负责；本仓库只提供调用外部
+MemGraph（原 ContextGraph 集成）默认关闭，只有设置 `JIUWENSWARM_MEMGRAPH_ENABLED=1`
+并提供 `MEMGRAPH_HTTP_URL`、`MEMGRAPH_EXPECTED_RECEIPT_SHA256`、`MEMGRAPH_EXPECTED_CORPUS`
+时才开启只读 MemGraph MCP。图构建、embedding、
+检索和 release 服务仍由外部图服务负责；本仓库只提供调用外部
 `/health`、`/query`、`/evidence` 的 agent 工具。bench 固定来源 corpus、
 receipt 和传输地址，启动前及每次调用均检查 release 身份。工具输出是
 不可信的历史建议，不能替代当前源码和公开检查，不能写回图。
@@ -163,5 +165,5 @@ S0 澄清 → PACT BenchDriver，不再强制先生成 Goal Contract、Initial P
 Core 规范导出，不过滤、回滚或重写模型修改。使用新边界的尝试必须冻结新
 suite/scaffold 身份；旧尝试和原成绩保持不变，修复重跑不能计作原始 pass@1。
 
-启用图工具时，已建立的外部 ContextGraph 调用日志临时交给原生 UID 追加，
+启用图工具时，已建立的外部 MemGraph 调用日志临时交给原生 UID 追加，
 阶段退出后恢复控制器所有权；不改写日志字节、查询结果、健康门槛或固定图身份。

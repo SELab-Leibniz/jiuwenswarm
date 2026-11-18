@@ -362,10 +362,10 @@ class LocalizationTests(unittest.IsolatedAsyncioTestCase):
             async def candidates(self, **kwargs):
                 return {"snapshot_id": kwargs["snapshot_id"], "release_id": "pinned-external-release", "locations": [{"file_path": "src/logic.py"}]}
 
-        result = await self._run(FakeWorker(events=[]), contextgraph=Provider())
+        result = await self._run(FakeWorker(events=[]), memgraph=Provider())
         self.assertEqual("degraded", result["status"])
         self.assertEqual([], result["locations"])
-        self.assertEqual("external-hints", result["contextgraph"]["mode"])
+        self.assertEqual("external-hints", result["memgraph"]["mode"])
 
     async def test_artifacts_cannot_be_written_in_s0(self):
         with self.assertRaises(ValueError):

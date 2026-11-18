@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
-from jiuwenswarm.long_horizon import contextgraph as reader
+from jiuwenswarm.long_horizon import memgraph as reader
 
 RECEIPT = "a" * 64
 
@@ -47,9 +47,9 @@ def graph():
     thread.start()
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        env = {"JIUWENSWARM_BENCH_MEMORY_ENABLED": "1", "CONTEXTGRAPH_HTTP_URL": f"http://127.0.0.1:{server.server_port}",
-               "CONTEXTGRAPH_EXPECTED_RECEIPT_SHA256": RECEIPT, "CONTEXTGRAPH_EXPECTED_CORPUS": "opposite",
-               "CONTEXTGRAPH_CALL_AUDIT_PATH": str(root / "audit.jsonl"), "http_proxy": "http://127.0.0.1:1"}
+        env = {"JIUWENSWARM_MEMGRAPH_ENABLED": "1", "MEMGRAPH_HTTP_URL": f"http://127.0.0.1:{server.server_port}",
+               "MEMGRAPH_EXPECTED_RECEIPT_SHA256": RECEIPT, "MEMGRAPH_EXPECTED_CORPUS": "opposite",
+               "MEMGRAPH_CALL_AUDIT_PATH": str(root / "audit.jsonl"), "http_proxy": "http://127.0.0.1:1"}
         with patch.dict(os.environ, env):
             yield state, records, root, env
     server.shutdown()
@@ -127,7 +127,7 @@ def test_audit_symlink_cannot_be_used(graph):
 
 
 def test_ambient_endpoint_does_not_enable_memory(graph):
-    with patch.dict(os.environ, {"JIUWENSWARM_BENCH_MEMORY_ENABLED": "0"}):
+    with patch.dict(os.environ, {"JIUWENSWARM_MEMGRAPH_ENABLED": "0"}):
         assert reader.selection() == {"enabled": False, "mode": "disabled", "writeback": False}
         with pytest.raises(ValueError):
             reader.request("/health")
@@ -139,7 +139,7 @@ def test_real_stdio_mcp_has_only_three_read_tools(graph):
 
     async def check():
         async with stdio_client(StdioServerParameters(command=sys.executable,
-            args=["-m", "jiuwenswarm.long_horizon.contextgraph_mcp"], env=dict(os.environ))) as (read, write):
+            args=["-m", "jiuwenswarm.long_horizon.memgraph_mcp"], env=dict(os.environ))) as (read, write):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 tools = (await session.list_tools()).tools
