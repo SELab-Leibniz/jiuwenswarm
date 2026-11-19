@@ -189,6 +189,25 @@ def load_plugin(options: argparse.Namespace) -> Any:
 
 
 async def run_command(options: argparse.Namespace) -> int:
+    outcome = await run_controller(options)
+    sys.stdout.write(json.dumps(asdict(outcome), default=str) + "\n")
+    return outcome_exit_code(outcome)
+
+
+def outcome_exit_code(outcome: Any) -> int:
+    return (
+        1
+        if outcome.selection is None
+        else 3
+        if outcome.internal_failure
+        else 4
+        if not outcome.candidate_available
+        else 0
+    )
+
+
+async def run_controller(options: argparse.Namespace) -> Any:
+    """Run one controller invocation and return its ``BenchmarkOutcome``."""
     from .controller import LongHorizonBenchmark
 
     if bool(options.memgraph_command) != bool(options.memgraph_receipt):
@@ -219,16 +238,7 @@ async def run_command(options: argparse.Namespace) -> int:
         close = getattr(plugin, "aclose", None)
         if close is not None:
             await close()
-    sys.stdout.write(json.dumps(asdict(outcome), default=str) + "\n")
-    return (
-        1
-        if outcome.selection is None
-        else 3
-        if outcome.internal_failure
-        else 4
-        if not outcome.candidate_available
-        else 0
-    )
+    return outcome
 
 
 def main(argv: list[str] | None = None, *, prog: str = "jiuwenswarm --lh") -> int:

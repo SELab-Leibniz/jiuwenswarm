@@ -16,6 +16,23 @@ jiuwenswarm-process --lh --task task.md --cwd /path/to/repo --verify "pytest -q"
 python -m jiuwenswarm.lh --task task.md --workdir /path/to/repo --output /tmp/lh-out
 ```
 
+### 与 `--run-json` 组合（Beacon `JIUWENSWARM_EXTRA_ARGS`）
+
+```bash
+jiuwenswarm-process --run-json /tmp/jiuwenswarm_run.json --lh [控制器参数...]
+```
+
+- run JSON 提供题目（`input`）、工作区（`workspace.cwd`）和 `timeout_seconds`（作为控制器总预算，
+  可用 `--budget-seconds` 覆盖）；`--lh` 之后的参数配置控制器，如 `--verify`、`--control-profile`。
+  不能再给 prompt、`--task`、`--cwd`；未知参数、`mode` 非 `agent.code.normal`、带
+  `session_id`/`model`/`output_schema`/`host_tools` 时，输出 `failed` 的 `result` 记录并以 2 退出。
+- 控制器在工作区的私有副本里运行，`.pact` 账本和角色 worktree 不进入原仓库；结束后只把导出的
+  候选补丁 `git apply` 回原工作区，由调用方照常采集 diff。
+- 标准输出仍是机器协议 JSONL：启动时一条 `lh.enabled` 事件（启用证据，含 workflow、预算、
+  控制器输出目录），结束时一条 `lh.finished` 事件（stop_reason、应用的文件），最后一条
+  `result`，其 `usage` 为全部原生 worker 调用的 `usage.json` 之和。
+- 退出码：0 已应用候选；4 无可导出候选；3 控制器内部失败；1 未发布 selection；5 补丁应用失败。
+
 默认工作流为 `suite`：S0 → P0 → S0 上澄清/定位 → Goal Contract / Initial Plan →
 P1 → 审查与修复循环 → 验收与交付，由 PACT Core 管理公开检查与接纳。各阶段
 模型调用通过 `jiuwenswarm-process --run-json -` 进入原生机器接口
