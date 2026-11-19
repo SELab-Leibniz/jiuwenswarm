@@ -112,3 +112,9 @@ report/index.html
 /context/
 /.plans/
 /todo/
+
+# Local long-horizon validation and dependencies
+.tools/
+.sources/
+.suite-venv/
+.suite-runs/

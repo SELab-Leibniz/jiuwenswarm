@@ -1,0 +1,55 @@
+name: Public write guard
+on:
+  push:
+    paths:
+      - 'jiuwenswarm/long_horizon/benchmark_write_guard.py'
+      - 'jiuwenswarm/long_horizon/worker.py'
+      - 'tests/long_horizon/test_benchmark_write_guard.py'
+      - '.github/workflows/public-write-guard.yml'
+  pull_request:
+    paths:
+      - 'jiuwenswarm/long_horizon/benchmark_write_guard.py'
+      - 'jiuwenswarm/long_horizon/worker.py'
+      - 'tests/long_horizon/test_benchmark_write_guard.py'
+      - '.github/workflows/public-write-guard.yml'
+permissions:
+  contents: read
+jobs:
+  linux-dac:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install control dependency
+        run: |
+          python3 -m venv /tmp/guard-control-venv
+          /tmp/guard-control-venv/bin/pip install PyYAML==6.0.2
+      - name: Run actual Linux DAC and receipt controls
+        run: |
+          sudo mkdir -p /opt/jiuwenswarm-bench
+          sudo env PYTHONPATH="$PWD" /tmp/guard-control-venv/bin/python -m unittest discover -s tests/long_horizon -p test_benchmark_write_guard.py -v
+      - name: Reproduce both regressions on original PR head
+        run: |
+          git fetch --no-tags --depth=1 origin bd262fac9067dffaf772adc0fd5fe8e354c84a5d
+          git show bd262fac9067dffaf772adc0fd5fe8e354c84a5d:jiuwenswarm/long_horizon/benchmark_write_guard.py > /tmp/original-guard.py
+          sudo env PYTHONPATH="$PWD" /tmp/guard-control-venv/bin/python - <<'PY'
+          import importlib.util
+          import sys
+          import unittest
+          import jiuwenswarm.long_horizon as package
+          name = "jiuwenswarm.long_horizon.benchmark_write_guard"
+          spec = importlib.util.spec_from_file_location(name, "/tmp/original-guard.py")
+          module = importlib.util.module_from_spec(spec)
+          sys.modules[name] = module
+          spec.loader.exec_module(module)
+          package.benchmark_write_guard = module
+          sys.path.insert(0, "tests/long_horizon")
+          import test_benchmark_write_guard
+          suite = unittest.defaultTestLoader.loadTestsFromNames([
+              "test_benchmark_write_guard.LinuxWriteGuardTests.test_preexisting_untracked_public_file_is_readonly_and_audited",
+              "test_benchmark_write_guard.LinuxWriteGuardTests.test_untracked_public_content_violation_is_detected_and_retained",
+          ])
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          assert result.testsRun == 2 and len(result.failures) == 2 and not result.errors
+          print("Original head reproduced: native write allowed, receipt missed content changes")
+          PY
