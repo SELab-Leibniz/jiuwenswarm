@@ -461,8 +461,9 @@ print(json.dumps(dict(schema_version="0.1", type="result", sequence=0,
                                 text=True, timeout=15, check=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((package / "__pycache__").exists())
-        self.assertTrue(any((root_state / "python-cache").rglob("*.pyc")))
-        self.assertTrue(any((self.state / "python-cache").rglob("*.pyc")))
+        self.assertEqual(environment["PYTHONDONTWRITEBYTECODE"], "1")
+        self.assertFalse(any(root_state.rglob("*.pyc")))
+        self.assertFalse(any(self.state.rglob("*.pyc")))
         self.assertEqual(self.guard.finish()["status"], "complete")
 
     def test_unconfirmed_process_exit_retains_protection(self):
