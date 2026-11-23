@@ -131,6 +131,7 @@ async def invoke(proxy, budget, request, output):
         raise
 
 
+@pytest.mark.asyncio
 async def test_recovery_retains_checkout_charges_call_and_keeps_original_deadline(tmp_path, native_types):
     worker, proxy, budget, request = setup_recovery(tmp_path, native_types)
     before = budget.snapshot()
@@ -146,6 +147,7 @@ async def test_recovery_retains_checkout_charges_call_and_keeps_original_deadlin
     assert receipt["parent"]["failed_session_id"] == "failed-native-session"
 
 
+@pytest.mark.asyncio
 async def test_second_stream_failure_is_not_retried_even_after_proxy_recreation(tmp_path, native_types):
     worker, proxy, budget, request = setup_recovery(tmp_path, native_types, fail_again=True)
     with pytest.raises(native_types.WorkerExecutionError):
@@ -159,6 +161,7 @@ async def test_second_stream_failure_is_not_retried_even_after_proxy_recreation(
     assert sum(c["adapter_id"] == RECOVERY_ADAPTER for c in budget.snapshot()["calls"]) == 1
 
 
+@pytest.mark.asyncio
 async def test_call_cap_reserves_review_and_refuses_recovery(tmp_path, native_types):
     worker, proxy, _, request = setup_recovery(tmp_path, native_types)
     budget = BenchBudget(
@@ -173,6 +176,7 @@ async def test_call_cap_reserves_review_and_refuses_recovery(tmp_path, native_ty
     assert json.loads((tmp_path / "turn/transport-recovery.json").read_text())["refused"] == "review_reserved"
 
 
+@pytest.mark.asyncio
 async def test_changed_configuration_never_launches_recovery(tmp_path, native_types):
     worker, proxy, budget, request = setup_recovery(tmp_path, native_types, config_drift=True)
     with pytest.raises(native_types.WorkerExecutionError):
@@ -180,6 +184,7 @@ async def test_changed_configuration_never_launches_recovery(tmp_path, native_ty
     assert len(worker.calls) == 1 and budget.snapshot()["role_calls"] == 1
 
 
+@pytest.mark.asyncio
 async def test_cancellation_preserves_attempted_recovery_without_another_call(tmp_path, native_types):
     worker, proxy, budget, request = setup_recovery(tmp_path, native_types, cancel_recovery=True)
     with pytest.raises(asyncio.CancelledError):
@@ -189,6 +194,7 @@ async def test_cancellation_preserves_attempted_recovery_without_another_call(tm
 
 
 @pytest.mark.parametrize("message", [READ_ERROR, IDLE_ERROR, FIRST_ERROR])
+@pytest.mark.asyncio
 async def test_real_native_process_receipts_recover_without_resuming_failed_session(tmp_path, native_types, message):
     executable = tmp_path / "native-process"
     executable.write_text(

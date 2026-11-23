@@ -24,6 +24,16 @@ def validate_origin(started_at: float) -> None:
         raise RuntimeContractError("budget_started_at_unix must be a positive finite epoch")
 
 
+def validate_cutoff(cutoff_at_unix: float | None) -> None:
+    if cutoff_at_unix is not None and (
+        isinstance(cutoff_at_unix, bool)
+        or not isinstance(cutoff_at_unix, (int, float))
+        or not math.isfinite(cutoff_at_unix)
+        or cutoff_at_unix <= 0
+    ):
+        raise RuntimeContractError("cutoff_at_unix must be a positive finite epoch or null")
+
+
 def remaining_seconds(seconds: float, started_at: float, *, now: float | None = None) -> float:
     validate_origin(started_at)
     if isinstance(seconds, bool) or not math.isfinite(seconds) or seconds <= 0:

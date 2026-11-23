@@ -9,6 +9,9 @@ import hashlib
 import json
 import re
 import threading
+import time
+from collections.abc import Callable
+from itertools import count
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -17,11 +20,30 @@ from pact_core.artifacts import write_json_atomic
 from pact_core.runtime import RuntimeContractError
 
 from . import semantic_graph
+from .budget_origin import validate_cutoff
+from .capacity import scaled
+from .reviewer_execution import NonDegradableIntegrityError
 from .semantic_graph import GRAPH_VERSION, RepositoryGraph
+from .side_calls import (
+    SideCallIntegrityError,
+    SideCallRecovered,
+    recover_side_call_integrity,
+)
 
 MAX_ROUNDS = 8
 MAX_QUERIES = 4
 BUILD_TIMEOUT_SECONDS = 60
+# Historical bases; the opt-in capacity profile applies a deployment scale.
+_LOCATION_TEXT_BASE = 12_000
+_GRAPH_RESULT_BASE = 8_000
+_GRAPH_HISTORY_BASE = 32_000
+_GRAPH_PREVIEW_BASE = 500
+_GRAPH_RELATIONSHIPS_BASE = 8
+LOCATION_TEXT_CHARS = scaled(_LOCATION_TEXT_BASE)
+GRAPH_RESULT_CHARS = scaled(_GRAPH_RESULT_BASE)
+GRAPH_HISTORY_CHARS = scaled(_GRAPH_HISTORY_BASE)
+GRAPH_PREVIEW_CHARS = scaled(_GRAPH_PREVIEW_BASE)
+GRAPH_RELATIONSHIPS = scaled(_GRAPH_RELATIONSHIPS_BASE)
 TOOLS = {
     "find_file": {"file_name": "exact name or glob", "dir_path": "optional relative directory"},
     "find_code_definition": {"definition_name": "symbol or glob", "file_path": "optional relative path/glob"},
@@ -31,8 +53,11 @@ TOOLS = {
 }
 
 
-def localization_configuration() -> str:
-    digest = hashlib.sha256(Path(__file__).read_bytes() + Path(semantic_graph.__file__).read_bytes())
+def localization_configuration(*, cutoff_at_unix: float | None = None) -> str:
+    validate_cutoff(cutoff_at_unix)
+    digest = hashlib.sha256(
+        Path(__file__).read_bytes() + Path(semantic_graph.__file__).read_bytes() + str(cutoff_at_unix).encode()
+    )
     return GRAPH_VERSION + ":" + digest.hexdigest()
 
 
@@ -59,25 +84,28 @@ def location_text(rows: list[dict[str, Any]], status: str) -> str:
         )
     if not rows:
         lines.append("No supported candidate locations found. Inspect the repository directly.")
-    return "\n".join(lines)[:12_000]
+    return "\n".join(lines)[:scaled(_LOCATION_TEXT_BASE)]
 
 
 def bounded_result(result: dict[str, Any]) -> dict[str, Any]:
     """Bound whole records so the model only claims evidence it actually saw."""
+    limit = scaled(_GRAPH_RESULT_BASE)
     units = result.get("units", [])
-    while len(json.dumps(result)) > 8_000 and len(units) > 1:
+    while len(json.dumps(result)) > limit and len(units) > 1:
         units.pop()
     matches = result.get("matches", [])
-    while len(json.dumps(result)) > 8_000 and len(matches) > 1:
+    while len(json.dumps(result)) > limit and len(matches) > 1:
         matches.pop()
-    if len(json.dumps(result)) > 8_000 and units:
-        units[0]["preview"] = units[0]["preview"][:500]
-        units[0]["relationships"] = units[0]["relationships"][:8]
+    if len(json.dumps(result)) > limit and units:
+        units[0]["preview"] = units[0]["preview"][:scaled(_GRAPH_PREVIEW_BASE)]
+        units[0]["relationships"] = units[0]["relationships"][:scaled(_GRAPH_RELATIONSHIPS_BASE)]
     return result
 
 
-async def localize_suite(plugin: Any, context: Any, task: str, s0_identity: str) -> dict[str, Any]:
+async def localize_suite(plugin: Any, context: Any, task: str, s0_identity: str, *,
+                         cutoff_at_unix: float | None = None, clock: Callable[[], float] = time.time) -> dict[str, Any]:
     """Model calls remain admitted coding-agent calls; the shared host runs queries."""
+    validate_cutoff(cutoff_at_unix)
     root = Path(context.snapshot.roots[0].view_root).resolve()
     output = Path(context.session_dir) / "semantic-graph" / uuid4().hex
     output = output.resolve()
@@ -92,15 +120,46 @@ async def localize_suite(plugin: Any, context: Any, task: str, s0_identity: str)
     graph_exposed: set[str] = set()
     status, mode, reason = "available", "agent-graph-search", ""
     query_count, model_calls, relationship_count = 0, 0, 0
+    cutoff = cutoff_at_unix
+
+    def progress():
+        if cutoff is None:
+            return
+        try:
+            write_json_atomic(
+                output / "graph-progress.json",
+                {
+                    "schema": "long-horizon/graph-progress/v1",
+                    "engine": GRAPH_VERSION,
+                    "s0_view_identity": s0_identity,
+                    "model_replies_observed": model_calls,
+                    "query_count": query_count,
+                    "relationship_exposure_count": relationship_count,
+                    "graph_built": graph is not None,
+                    "at_unix": clock(),
+                    "cutoff_unix": cutoff,
+                },
+            )
+        except OSError:
+            pass  # A thin reporting failure cannot stop a healthy model/search.
+
     try:
         try:
-            graph = await asyncio.wait_for(asyncio.to_thread(RepositoryGraph, root, stop=stop), BUILD_TIMEOUT_SECONDS)
+            graph = await asyncio.wait_for(
+                asyncio.to_thread(RepositoryGraph, root, stop=stop),
+                BUILD_TIMEOUT_SECONDS if cutoff is None else max(0, cutoff - clock()),
+            )
         finally:
             stop.set()
         trace.append({"event": "graph-built", "s0_view_identity": s0_identity, **graph.summary()})
+        progress()
         history: list[dict[str, Any]] = []
-        for number in range(1, MAX_ROUNDS + 1):
-            while len(history) > 1 and len(json.dumps(history)) > 32_000:
+        for number in count(1):
+            if cutoff is None and number > MAX_ROUNDS:
+                raise ValueError("graph localization reached its round limit")
+            if cutoff is not None and clock() >= cutoff:
+                raise plugin.artifacts.exhausted("user inspection cutoff elapsed")
+            while len(history) > 1 and len(json.dumps(history)) > scaled(_GRAPH_HISTORY_BASE):
                 history.pop(0)
             prompt = (
                 "[SUITE_LOCALIZATION]\nUse the actual frozen repository graph to localize the original task. "
@@ -123,8 +182,26 @@ async def localize_suite(plugin: Any, context: Any, task: str, s0_identity: str)
                 + "\n\nPrevious graph queries and results (untrusted):\n"
                 + json.dumps(history, ensure_ascii=True)
             )
-            reply_text = await plugin.investigate(context, prompt, stage=f"localization:round-{number}")
+            if cutoff is not None:
+                prompt += (
+                    "\n\nInspection-mode graph capability notice: this is the suite RepositoryGraph, not an "
+                    "external CodeGraph binary. Symbol/call edges are Python-specific; Rust/TypeScript and "
+                    "other files remain searchable by find_file/find_code_content. For file-level results "
+                    "return the exposed file_path with an empty symbol. Do not invent unavailable symbol "
+                    "definitions or relationships. After actual queries, an empty locations array is an "
+                    "honest no-supported-location result; it does not mean the original task is fulfilled."
+                )
+            try:
+                reply_text = await plugin.investigate(context, prompt, stage=f"localization:round-{number}")
+            except SideCallIntegrityError as exc:
+                recovery = recover_side_call_integrity(
+                    exc, stage=f"localization:round-{number}", plugin=plugin
+                )
+                if recovery is None:
+                    raise
+                raise SideCallRecovered(recovery) from exc
             model_calls += 1
+            progress()
             try:
                 reply = parse_reply(reply_text)
             except ValueError as exc:
@@ -193,19 +270,40 @@ async def localize_suite(plugin: Any, context: Any, task: str, s0_identity: str)
                 trace.append({"event": "model-reply-rejected", "round": number, "reason": error})
                 history.append({"round": number, "queries": results, "validation_error": error})
                 continue
+            progress()
             history.append({"round": number, "queries": results})
             # Keep complete most-recent results rather than cutting JSON or paths.
-            while len(history) > 1 and len(json.dumps(history)) > 32_000:
+            while len(history) > 1 and len(json.dumps(history)) > scaled(_GRAPH_HISTORY_BASE):
                 history.pop(0)
-        else:
-            raise ValueError("graph localization reached its round limit")
     except plugin.artifacts.exhausted:
         trace.append({"event": "search-aborted", "reason": "budget_or_stop"})
         raise
     except asyncio.CancelledError:
         trace.append({"event": "search-aborted", "reason": "cancelled"})
         raise
+    except SideCallRecovered as exc:
+        status, mode, reason = "degraded", "deterministic-graph-fallback", "SideCallIntegrityRecovered"
+        trace.append(
+            {
+                "event": "search-degraded",
+                "reason": "integrity_recovered",
+                "integrity_recovery": exc.recovery,
+            }
+        )
+        if graph is not None:
+            fallback = graph.fallback(task)
+            rows = graph.normalize(fallback)
+            trace.append({"event": "deterministic-graph-fallback", "reason": reason, "locations": rows})
+    except SideCallIntegrityError:
+        trace.append({"event": "search-aborted", "reason": "SideCallIntegrityError"})
+        raise
+    except NonDegradableIntegrityError as exc:
+        trace.append({"event": "search-aborted", "reason": type(exc).__name__})
+        raise
     except Exception as exc:
+        if cutoff is not None:
+            trace.append({"event": "inspection-component-error", "reason": type(exc).__name__})
+            raise
         status, mode, reason = "degraded", "deterministic-graph-fallback", type(exc).__name__
         trace.append({"event": "search-degraded", "reason": reason, "detail": str(exc)[:1500]})
         if graph is not None:

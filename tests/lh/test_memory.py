@@ -25,6 +25,7 @@ def context(tmp_path):
     return SimpleNamespace(snapshot=SimpleNamespace(roots=(SimpleNamespace(view_root=str(tmp_path)),)))
 
 
+@pytest.mark.asyncio
 async def test_memory_command_receives_real_query_and_snapshot_with_receipt(tmp_path):
     command = provider(
         tmp_path,
@@ -40,12 +41,14 @@ async def test_memory_command_receives_real_query_and_snapshot_with_receipt(tmp_
 
 
 @pytest.mark.parametrize("output", ["[]", '{"text":42}', "x" * 64001])
+@pytest.mark.asyncio
 async def test_memory_rejects_invalid_or_excessive_subprocess_output(tmp_path, output):
     command = provider(tmp_path, "print(" + repr(output) + ")")
     with pytest.raises(ValueError):
         await command(context(tmp_path), "repair")
 
 
+@pytest.mark.asyncio
 async def test_cancel_terminates_and_waits_for_memory_process(tmp_path, monkeypatch):
     command = provider(tmp_path, "import time; time.sleep(30)")
     started, processes = asyncio.Event(), []
@@ -66,6 +69,7 @@ async def test_cancel_terminates_and_waits_for_memory_process(tmp_path, monkeypa
     assert len(processes) == 1 and processes[0].returncode is not None
 
 
+@pytest.mark.asyncio
 async def test_invalid_cli_memory_pair_rejected_before_plugin_startup(monkeypatch):
     def forbidden_startup(options):
         raise AssertionError("plugin should not start")

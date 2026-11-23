@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from .capacity import scaled
+
 GRAPH_VERSION = "frozen-s0-qualified-python-graph/v1"
 IGNORE_DIRS = {
     ".git",
@@ -416,7 +418,7 @@ class RepositoryGraph:
             **asdict(unit),
             "preview": "\n".join(
                 f"{i + 1}: {lines[i]}" for i in range(unit.start_line - 1, min(unit.end_line, unit.start_line + 18))
-            )[:2200],
+            )[:scaled(2200)],
             "relationships": [
                 {
                     "kind": kind,
@@ -472,7 +474,7 @@ class RepositoryGraph:
             for path in files:
                 for line, text in enumerate(self.files[path].splitlines(), 1):
                     if content.casefold() in text.casefold():
-                        matches.append({"file_path": path, "line": line, "text": text[:300]})
+                        matches.append({"file_path": path, "line": line, "text": text[:scaled(300)]})
                         containers = [u for u in self.by_file[path] if u.start_line <= line <= u.end_line]
                         if containers:
                             unit = min(containers, key=lambda u: u.end_line - u.start_line)

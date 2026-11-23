@@ -19,6 +19,9 @@ from uuid import uuid4
 
 from pact_core.runtime import RuntimeContractError
 
+from .capacity import capacity_receipt
+from .evidence import contained_in_roots
+
 DEFAULT_SNAPSHOT_MAX_TOTAL_BYTES = 1024 * 1024 * 1024
 MAX_SNAPSHOT_TOTAL_BYTES = 2 * 1024 * 1024 * 1024
 
@@ -54,6 +57,7 @@ def native_stage_record(
     stage: str,
     receipt: Any,
     metadata: dict[str, object],
+    archive_roots: tuple[Path, ...] = (),
 ) -> Any:
     """Freeze the exact Core export, retaining native symlink and checkpoint checks."""
     payload = evidence.verify_export(receipt)
@@ -99,6 +103,7 @@ def native_stage_record(
         metadata={
             **metadata,
             "snapshot_resources": resources.record(),
+            "capacity_profile": capacity_receipt(),
             "candidate_checkpoint": receipt.candidate.checkpoint,
             "candidate_tree": receipt.candidate.tree,
             "export_receipt_sha256": receipt.artifact_sha256,
@@ -106,12 +111,14 @@ def native_stage_record(
         },
         snapshot=snapshot,
     )
+    export_location = contained_in_roots(receipt.artifact, output_root=output_root, archive_roots=archive_roots)
     return (
         {
             "stage": stage,
             "candidate_checkpoint": receipt.candidate.checkpoint,
             "candidate_tree": receipt.candidate.tree,
-            "export": evidence.contained(output_root, receipt.artifact),
+            "export": export_location["path"],
+            "export_root": export_location["root"],
             "export_sha256": receipt.artifact_sha256,
             "patch_sha256": evidence.export_patch_sha256(receipt),
             "patch_empty": receipt.patch.stat().st_size == 0,

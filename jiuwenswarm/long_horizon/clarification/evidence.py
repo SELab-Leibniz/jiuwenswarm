@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -13,10 +14,31 @@ from pathlib import Path
 from .compat import find_rg
 from .snapshot import WorkspaceSnapshot
 
-_PACKET_MAX_CHARS = 8000
+
+
+_CAPACITY_SCALE_ENV = "LONG_HORIZON_CAPACITY_SCALE"
+
+
+def _capacity_scale() -> int:
+    raw = os.environ.get(_CAPACITY_SCALE_ENV, "").strip()
+    if not raw:
+        return 1
+    try:
+        value = int(raw, 10)
+    except (TypeError, ValueError):
+        raise ValueError(f"{_CAPACITY_SCALE_ENV} must be a positive integer") from None
+    if isinstance(value, bool) or not 1 <= value <= 10_000:
+        raise ValueError(f"{_CAPACITY_SCALE_ENV} must be an integer from 1 to 10000")
+    return value
+
+
+def _scaled(value: int) -> int:
+    return max(1, int(value) * _capacity_scale())
+
+_PACKET_MAX_CHARS = _scaled(8000)
 _TERMS_MAX = 10
-_HITS_PER_TERM = 6
-_HITS_MAX = 60
+_HITS_PER_TERM = _scaled(6)
+_HITS_MAX = _scaled(60)
 _ANCESTOR_COMMITS_PER_TERM = 3
 _ANCESTOR_COMMITS_PER_ROOT = 6
 _STOP_WORDS = frozenset(

@@ -1,0 +1,554 @@
+{
+  "schema": "jiuwenswarm/lh-suite-source/v1",
+  "repository": "https://github.com/SELab-Leibniz/long-horizon-controller",
+  "revision": "ccb4adc6ab3bf1e592db978603a0a165ae3c2c47",
+  "previous_revision": "965e3704d5cdcec8d2f838295ae6624d2e802c11",
+  "pact_core": {
+    "version": "0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1",
+    "wheel": "vendor/pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl",
+    "sha256": "190ea348e1897c76159a65dd6e604cfb1e63a9fca5dd0776c092420b5675611f",
+    "installation": "external; opt-in --lh only"
+  },
+  "adaptations": [
+    "Relocate shared modules to jiuwenswarm.lh while preserving serialized long_horizon keys.",
+    "Keep the existing Jiuwen-only --lh and --run-json CLI; expose new suite budget/review options.",
+    "Omit Chrys/ACP, SDK external drivers, benchmark launchers and C7 code. Include candidate archive, check receipt and delivery helpers used by the controller.",
+    "Extract source_files, _safe_path and copy_files from terminal.py into workspace_files.py for delivery.",
+    "Keep MemGraph naming and disabled default, native transport retry rail and public-test write guard.",
+    "Tests use explicit asyncio markers, embedded package/fixture paths and fake-native startup for protocol controls."
+  ],
+  "files": {
+    "jiuwenswarm/lh/__init__.py": {
+      "sha256": "72ebb03ed308a768425b65b4841bf09e879cb3b799beccba7800c52c19e18395",
+      "source": "src/long_horizon/__init__.py",
+      "source_sha256": "72ebb03ed308a768425b65b4841bf09e879cb3b799beccba7800c52c19e18395"
+    },
+    "jiuwenswarm/lh/__main__.py": {
+      "sha256": "d71acfa3b85b83b07192cd4164a96c849d6311e092726554d4a0aefaffa55bf7",
+      "source": "src/long_horizon/__main__.py",
+      "source_sha256": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d"
+    },
+    "jiuwenswarm/lh/acceptance_timing.py": {
+      "sha256": "632336d0e22f8f0a86952eb7815c4582293cbb80cc52c0fca7be78d004dc838c",
+      "source": "src/long_horizon/acceptance_timing.py",
+      "source_sha256": "632336d0e22f8f0a86952eb7815c4582293cbb80cc52c0fca7be78d004dc838c"
+    },
+    "jiuwenswarm/lh/bindings.py": {
+      "sha256": "5ec4cd992fc8cb6dafcbaa6d8d7525fafee2600a1086871bd3df40459a841cfd",
+      "source": "src/long_horizon/bindings.py",
+      "source_sha256": "6994d3c5d35f53aef1c429941238883725ad555be10d6ff385a41c2e10bdb83e"
+    },
+    "jiuwenswarm/lh/budget_boundary.py": {
+      "sha256": "02d657c68f3a99f59fac8a6944f20d357135d667c647338124466bd32ea4883b",
+      "source": "src/long_horizon/budget_boundary.py",
+      "source_sha256": "02d657c68f3a99f59fac8a6944f20d357135d667c647338124466bd32ea4883b"
+    },
+    "jiuwenswarm/lh/budget_origin.py": {
+      "sha256": "173202718dd0d0b9e33cb65a487382d9f818ed4ff50166ecb1971bdf1eba8838",
+      "source": "src/long_horizon/budget_origin.py",
+      "source_sha256": "173202718dd0d0b9e33cb65a487382d9f818ed4ff50166ecb1971bdf1eba8838"
+    },
+    "jiuwenswarm/lh/candidate_gate.py": {
+      "sha256": "43f15404da5f085d695522b8d6fa0e61088de726eb55f815d05cd540c0a58b8f",
+      "source": "src/long_horizon/candidate_gate.py",
+      "source_sha256": "43f15404da5f085d695522b8d6fa0e61088de726eb55f815d05cd540c0a58b8f"
+    },
+    "jiuwenswarm/lh/capacity.py": {
+      "sha256": "fc6cb1a0688641b82ab6e34381444794db8369fc935dd91bf88b0c43b83b60ba",
+      "source": "src/long_horizon/capacity.py",
+      "source_sha256": "fc6cb1a0688641b82ab6e34381444794db8369fc935dd91bf88b0c43b83b60ba"
+    },
+    "jiuwenswarm/lh/check_outputs.py": {
+      "sha256": "1dd32d90e8ceeb0a5d5a0589d5444d85bc893bc627f40d6aa116f83c6f3ceed8",
+      "source": "src/long_horizon/check_outputs.py",
+      "source_sha256": "1dd32d90e8ceeb0a5d5a0589d5444d85bc893bc627f40d6aa116f83c6f3ceed8"
+    },
+    "jiuwenswarm/lh/check_prerequisites.py": {
+      "sha256": "d58ac2f833315cf8a613584862f440c6c2b5a1c3a4d4bfc1a70cbaa31e9d641a",
+      "source": "src/long_horizon/check_prerequisites.py",
+      "source_sha256": "d58ac2f833315cf8a613584862f440c6c2b5a1c3a4d4bfc1a70cbaa31e9d641a"
+    },
+    "jiuwenswarm/lh/checkpoint_guard.py": {
+      "sha256": "44677172410af83a0abf12805fd5792d931d18273bbabe2421648481a74211a6",
+      "source": "src/long_horizon/checkpoint_guard.py",
+      "source_sha256": "44677172410af83a0abf12805fd5792d931d18273bbabe2421648481a74211a6"
+    },
+    "jiuwenswarm/lh/cli.py": {
+      "sha256": "096285529ccb7cc08bfa821c8955b4d3329b98dacaff2406cd834d59b59270bd",
+      "source": "src/long_horizon/cli.py",
+      "source_sha256": "3f3ca594c13b7d95091c0151cb908d74d07654a8125a266049808dc104be427a"
+    },
+    "jiuwenswarm/lh/confirmed_behavior.py": {
+      "sha256": "97a9867e6417fc9b163ed9f12d0729a681e875a2b4c4e2dfb43c2867ff9c3bb5",
+      "source": "src/long_horizon/confirmed_behavior.py",
+      "source_sha256": "97a9867e6417fc9b163ed9f12d0729a681e875a2b4c4e2dfb43c2867ff9c3bb5"
+    },
+    "jiuwenswarm/lh/control_policy.py": {
+      "sha256": "a2ada25efb4c34b53ce977cf30500ae8671e5bd2d6a07e20ea10a2bc94a74484",
+      "source": "src/long_horizon/control_policy.py",
+      "source_sha256": "a2ada25efb4c34b53ce977cf30500ae8671e5bd2d6a07e20ea10a2bc94a74484"
+    },
+    "jiuwenswarm/lh/controller.py": {
+      "sha256": "ec29106f98bbdc73c3717d3b1084c641d00d6eb98649caa689cf4399e23638a9",
+      "source": "src/long_horizon/controller.py",
+      "source_sha256": "ec29106f98bbdc73c3717d3b1084c641d00d6eb98649caa689cf4399e23638a9"
+    },
+    "jiuwenswarm/lh/early_acceptance_audit.py": {
+      "sha256": "03d4a1d7c70d6883f23cc7bc49b7f5cd333a09efe7eca703051ffdc05ac9b95e",
+      "source": "src/long_horizon/early_acceptance_audit.py",
+      "source_sha256": "03d4a1d7c70d6883f23cc7bc49b7f5cd333a09efe7eca703051ffdc05ac9b95e"
+    },
+    "jiuwenswarm/lh/evidence.py": {
+      "sha256": "957cd0fe1db81fcafd3b86fe5de0d17a30dc1c4ef973fe768efe011a69ed8889",
+      "source": "src/long_horizon/evidence.py",
+      "source_sha256": "957cd0fe1db81fcafd3b86fe5de0d17a30dc1c4ef973fe768efe011a69ed8889"
+    },
+    "jiuwenswarm/lh/file_artifacts.py": {
+      "sha256": "af1863a662a8254bb5165dd7178a23b6151386563fca17b3f555b706c509d6d9",
+      "source": "src/long_horizon/file_artifacts.py",
+      "source_sha256": "af1863a662a8254bb5165dd7178a23b6151386563fca17b3f555b706c509d6d9"
+    },
+    "jiuwenswarm/lh/generalization_check.py": {
+      "sha256": "c36812f16f00bbdc6114e21433d94fc9e694b7cd6209a407ca85364d925da1cd",
+      "source": "src/long_horizon/generalization_check.py",
+      "source_sha256": "c36812f16f00bbdc6114e21433d94fc9e694b7cd6209a407ca85364d925da1cd"
+    },
+    "jiuwenswarm/lh/harbor_unified/__init__.py": {
+      "sha256": "a1d1af6582764420fcf3a903b2f2497be8479a7db03eea48a1d52601b56a306d",
+      "source": "src/long_horizon/harbor_unified/__init__.py",
+      "source_sha256": "c9f9002d40793107e8832eda152eb70f9e7ace418a3c0cc5518a9972a47bf652"
+    },
+    "jiuwenswarm/lh/harbor_unified/candidate_artifacts.py": {
+      "sha256": "683b1fbf788b5c273efe3da5f426f09b610f24b07d0fabe496de254aa9676dbb",
+      "source": "src/long_horizon/harbor_unified/candidate_artifacts.py",
+      "source_sha256": "683b1fbf788b5c273efe3da5f426f09b610f24b07d0fabe496de254aa9676dbb"
+    },
+    "jiuwenswarm/lh/harbor_unified/delivery.py": {
+      "sha256": "bf566cf0dba76b52ca51a4d119956c11aeda5b6316b486de31a3c464e264e217",
+      "source": "src/long_horizon/harbor_unified/delivery.py",
+      "source_sha256": "08fc3e709860e532fded668db0b0c22e88a00055ab05619e7a49a4dc99c7cb10"
+    },
+    "jiuwenswarm/lh/harbor_unified/global_sequence.py": {
+      "sha256": "b62e731935cefc52566154b97f2cf4294fdf27d22e33872b7a4aa29a5495c91b",
+      "source": "src/long_horizon/harbor_unified/global_sequence.py",
+      "source_sha256": "b62e731935cefc52566154b97f2cf4294fdf27d22e33872b7a4aa29a5495c91b"
+    },
+    "jiuwenswarm/lh/harbor_unified/public_check_outcome.py": {
+      "sha256": "afa62e37c5bb4fabea41d51e1774544eaf7559c449de66e6980fa98c12e59521",
+      "source": "src/long_horizon/harbor_unified/public_check_outcome.py",
+      "source_sha256": "afa62e37c5bb4fabea41d51e1774544eaf7559c449de66e6980fa98c12e59521"
+    },
+    "jiuwenswarm/lh/harbor_unified/safe_failure.py": {
+      "sha256": "bbf2213561826ba0ebf86606f506c89525ece0e3bcec688a89b4017999cd6f7c",
+      "source": "src/long_horizon/harbor_unified/safe_failure.py",
+      "source_sha256": "bbf2213561826ba0ebf86606f506c89525ece0e3bcec688a89b4017999cd6f7c"
+    },
+    "jiuwenswarm/lh/localization.py": {
+      "sha256": "6121d993a5ec4090873cc744b92e51a0a6ae8ad8335719ea357f7b82cf7a5dab",
+      "source": "src/long_horizon/localization.py",
+      "source_sha256": "6121d993a5ec4090873cc744b92e51a0a6ae8ad8335719ea357f7b82cf7a5dab"
+    },
+    "jiuwenswarm/lh/memory.py": {
+      "sha256": "7a2f014a8f9d3f319d6fbd31891775edc388b37b5fdd4edd066114a3db622ca9",
+      "source": "src/long_horizon/memory.py",
+      "source_sha256": "7a2f014a8f9d3f319d6fbd31891775edc388b37b5fdd4edd066114a3db622ca9"
+    },
+    "jiuwenswarm/lh/memory_guard.py": {
+      "sha256": "d941f61d678dca18494d96de72c326b60105def3a13488939cf4822e79dd3709",
+      "source": "src/long_horizon/memory_guard.py",
+      "source_sha256": "d941f61d678dca18494d96de72c326b60105def3a13488939cf4822e79dd3709"
+    },
+    "jiuwenswarm/lh/meridian_publication.py": {
+      "sha256": "29b583d87970a0a8bd2c95b00f1aa2a8bd967735ceba45d8ff6a5e60c9b483d3",
+      "source": "src/long_horizon/meridian_publication.py",
+      "source_sha256": "29b583d87970a0a8bd2c95b00f1aa2a8bd967735ceba45d8ff6a5e60c9b483d3"
+    },
+    "jiuwenswarm/lh/method_routing.py": {
+      "sha256": "6768f8e0f2db7738dad2cbbb840fc4e44c5c7aa9521e04682d6929688ed50e59",
+      "source": "src/long_horizon/method_routing.py",
+      "source_sha256": "6768f8e0f2db7738dad2cbbb840fc4e44c5c7aa9521e04682d6929688ed50e59"
+    },
+    "jiuwenswarm/lh/planning_calls.py": {
+      "sha256": "3e0081e93095b62c907f5727fe5d7ce81fe6900cd0ff6607604a468f0cdaba2b",
+      "source": "src/long_horizon/planning_calls.py",
+      "source_sha256": "3e0081e93095b62c907f5727fe5d7ce81fe6900cd0ff6607604a468f0cdaba2b"
+    },
+    "jiuwenswarm/lh/planning_checkpoint.py": {
+      "sha256": "7f5560b33c9a08403ce11c6e743b45507e6d8d26e19529309b23d9cd569858dc",
+      "source": "src/long_horizon/planning_checkpoint.py",
+      "source_sha256": "7f5560b33c9a08403ce11c6e743b45507e6d8d26e19529309b23d9cd569858dc"
+    },
+    "jiuwenswarm/lh/plugins/__init__.py": {
+      "sha256": "25772ebabb6c2203423a253f4290836bb6cd5ea81e58c96b1de4be91dd177d0c",
+      "source": "src/long_horizon/plugins/__init__.py",
+      "source_sha256": "25772ebabb6c2203423a253f4290836bb6cd5ea81e58c96b1de4be91dd177d0c"
+    },
+    "jiuwenswarm/lh/plugins/generic.py": {
+      "sha256": "daf99f95e4757619cd54609f68e664270ead043b2e8f86b1021c22b790285539",
+      "source": "src/long_horizon/plugins/generic.py",
+      "source_sha256": "daf99f95e4757619cd54609f68e664270ead043b2e8f86b1021c22b790285539"
+    },
+    "jiuwenswarm/lh/plugins/jiuwen.py": {
+      "sha256": "d6165009a475a02620fce6894ca972b77a5f97efd3f794c4d050d9d4eca97bd9",
+      "source": "src/long_horizon/plugins/jiuwen.py",
+      "source_sha256": "e677bd1171934ea1fbb66ef435673f1463756505b9de6412f78ed54a4ee9bc3a"
+    },
+    "jiuwenswarm/lh/plugins/native.py": {
+      "sha256": "e419663b628f77fa31c9d2ad8424067428ba1a64ab0053bcae1bd450c293d422",
+      "source": "src/long_horizon/plugins/native.py",
+      "source_sha256": "e419663b628f77fa31c9d2ad8424067428ba1a64ab0053bcae1bd450c293d422"
+    },
+    "jiuwenswarm/lh/plugins/native_checkpoint.py": {
+      "sha256": "1c30c1f79616950e27a4e10ded46bb7a84887e869ffae65955931311322771b1",
+      "source": "src/long_horizon/plugins/native_checkpoint.py",
+      "source_sha256": "1c30c1f79616950e27a4e10ded46bb7a84887e869ffae65955931311322771b1"
+    },
+    "jiuwenswarm/lh/plugins/transport_recovery.py": {
+      "sha256": "0cddd337ef00ff702a44c324d98527e896f1290efe8aefa00f4fd9af2076a2e1",
+      "source": "src/long_horizon/plugins/transport_recovery.py",
+      "source_sha256": "0cddd337ef00ff702a44c324d98527e896f1290efe8aefa00f4fd9af2076a2e1"
+    },
+    "jiuwenswarm/lh/ports.py": {
+      "sha256": "e8f01bf1ee1006b8cba4ba7ebe19bc24b731e1d5a6f239517be291d95d0db15c",
+      "source": "src/long_horizon/ports.py",
+      "source_sha256": "e8f01bf1ee1006b8cba4ba7ebe19bc24b731e1d5a6f239517be291d95d0db15c"
+    },
+    "jiuwenswarm/lh/process_kill_guard.py": {
+      "sha256": "37987f8dddeff3544a09d8a905fdf33f63bd4f3c2dfa2be534ac66192420694a",
+      "source": "src/long_horizon/process_kill_guard.py",
+      "source_sha256": "37987f8dddeff3544a09d8a905fdf33f63bd4f3c2dfa2be534ac66192420694a"
+    },
+    "jiuwenswarm/lh/process_termination.py": {
+      "sha256": "f1edc7cc871e98fd734334608e8aa808d07e52064737898c926edf9649ef297e",
+      "source": "src/long_horizon/process_termination.py",
+      "source_sha256": "f1edc7cc871e98fd734334608e8aa808d07e52064737898c926edf9649ef297e"
+    },
+    "jiuwenswarm/lh/progress.py": {
+      "sha256": "5bc9f374ba4897e324e1f51c63ae379dc4237991e797a095ffb6de6bba4a7c97",
+      "source": "src/long_horizon/progress.py",
+      "source_sha256": "5bc9f374ba4897e324e1f51c63ae379dc4237991e797a095ffb6de6bba4a7c97"
+    },
+    "jiuwenswarm/lh/public_reference.py": {
+      "sha256": "f0916d9aac791eb71ce18e53079f5da785731b55424c1c85b15a9a59ffbeb8eb",
+      "source": "src/long_horizon/public_reference.py",
+      "source_sha256": "f0916d9aac791eb71ce18e53079f5da785731b55424c1c85b15a9a59ffbeb8eb"
+    },
+    "jiuwenswarm/lh/public_reference_evidence.py": {
+      "sha256": "187499a4b9ef5e1fffeecc96d5b29f02d9ce51a5b0c0a38bfc4513f7760713a0",
+      "source": "src/long_horizon/public_reference_evidence.py",
+      "source_sha256": "187499a4b9ef5e1fffeecc96d5b29f02d9ce51a5b0c0a38bfc4513f7760713a0"
+    },
+    "jiuwenswarm/lh/public_review.py": {
+      "sha256": "175c9b7e3943fe08c8d447b3911efa67d77bee95575d13bcab6ffbc4bcd77fab",
+      "source": "src/long_horizon/public_review.py",
+      "source_sha256": "175c9b7e3943fe08c8d447b3911efa67d77bee95575d13bcab6ffbc4bcd77fab"
+    },
+    "jiuwenswarm/lh/reference_client_spec.py": {
+      "sha256": "e64831aab90e4e7fd9a1c16cecc08e8cc1c96518022c637c2f785b51cb26af97",
+      "source": "src/long_horizon/reference_client_spec.py",
+      "source_sha256": "e64831aab90e4e7fd9a1c16cecc08e8cc1c96518022c637c2f785b51cb26af97"
+    },
+    "jiuwenswarm/lh/review_admissions.py": {
+      "sha256": "e24666873d376832db7c48f0dff0988bbe7bd87ea582ca004663470b2fc909b1",
+      "source": "src/long_horizon/review_admissions.py",
+      "source_sha256": "e24666873d376832db7c48f0dff0988bbe7bd87ea582ca004663470b2fc909b1"
+    },
+    "jiuwenswarm/lh/review_governance.py": {
+      "sha256": "7c6f53c168ed110d6fd959274379e978ef1a3ffdf2faae268ed18fe94927c81e",
+      "source": "src/long_horizon/review_governance.py",
+      "source_sha256": "7c6f53c168ed110d6fd959274379e978ef1a3ffdf2faae268ed18fe94927c81e"
+    },
+    "jiuwenswarm/lh/review_limits.py": {
+      "sha256": "51f356a966acbcef606766bd06dd0dc20ba1a87f424b6158b045f642ed97c704",
+      "source": "src/long_horizon/review_limits.py",
+      "source_sha256": "51f356a966acbcef606766bd06dd0dc20ba1a87f424b6158b045f642ed97c704"
+    },
+    "jiuwenswarm/lh/review_transport.py": {
+      "sha256": "7becfc10a737e0e0181d15ebcabe0cccc1cdb2a58d81eb2f4d0b00c470e1b279",
+      "source": "src/long_horizon/review_transport.py",
+      "source_sha256": "7becfc10a737e0e0181d15ebcabe0cccc1cdb2a58d81eb2f4d0b00c470e1b279"
+    },
+    "jiuwenswarm/lh/reviewer_execution.py": {
+      "sha256": "bd4ea897d0361eaafd7f39670bfc30371bd8936ca0656edc9f5428d78b40af9b",
+      "source": "src/long_horizon/reviewer_execution.py",
+      "source_sha256": "bd4ea897d0361eaafd7f39670bfc30371bd8936ca0656edc9f5428d78b40af9b"
+    },
+    "jiuwenswarm/lh/reviewer_privilege.py": {
+      "sha256": "04cad14f69cc74760a930606b8144188f8a8665403cf31f4d06769c754fce3a3",
+      "source": "src/long_horizon/reviewer_privilege.py",
+      "source_sha256": "04cad14f69cc74760a930606b8144188f8a8665403cf31f4d06769c754fce3a3"
+    },
+    "jiuwenswarm/lh/run_json.py": {
+      "sha256": "ead3d21671c7fbccb995a68f729db7eb14f0ce476c7bcc41d56658269f43eddc"
+    },
+    "jiuwenswarm/lh/semantic_graph.py": {
+      "sha256": "307f63c1ebc9a1e46bf8f909f8ac4a94f9bbf9906228103b2af3d289292262a0",
+      "source": "src/long_horizon/semantic_graph.py",
+      "source_sha256": "307f63c1ebc9a1e46bf8f909f8ac4a94f9bbf9906228103b2af3d289292262a0"
+    },
+    "jiuwenswarm/lh/side_calls.py": {
+      "sha256": "f6dee9b25929ba1cf349d19e62201a23a32548d4b51908fc339a2e65aa1f5edf",
+      "source": "src/long_horizon/side_calls.py",
+      "source_sha256": "f6dee9b25929ba1cf349d19e62201a23a32548d4b51908fc339a2e65aa1f5edf"
+    },
+    "jiuwenswarm/lh/snapshot_resources.py": {
+      "sha256": "75159a820e82dd918c3c694ebe6639c425accc8854cbe2d5e17a6b8afcf4c0af",
+      "source": "src/long_horizon/snapshot_resources.py",
+      "source_sha256": "75159a820e82dd918c3c694ebe6639c425accc8854cbe2d5e17a6b8afcf4c0af"
+    },
+    "jiuwenswarm/lh/suite.py": {
+      "sha256": "f04892ee0c17efcde364d98346d7d9b5f750021f4313a861c76ec22d41ceaf0c",
+      "source": "src/long_horizon/suite.py",
+      "source_sha256": "f04892ee0c17efcde364d98346d7d9b5f750021f4313a861c76ec22d41ceaf0c"
+    },
+    "jiuwenswarm/lh/transport_failure.py": {
+      "sha256": "bf78ed2ba8d38691b82371714be108b8a282fa3e2dabd246d77f1b5132825896",
+      "source": "src/long_horizon/transport_failure.py",
+      "source_sha256": "bf78ed2ba8d38691b82371714be108b8a282fa3e2dabd246d77f1b5132825896"
+    },
+    "jiuwenswarm/lh/turn_environment.py": {
+      "sha256": "705a48c6ee7eb58323202556ca18eec961b499ff58994ef4034ed9db3113d357",
+      "source": "src/long_horizon/turn_environment.py",
+      "source_sha256": "705a48c6ee7eb58323202556ca18eec961b499ff58994ef4034ed9db3113d357"
+    },
+    "jiuwenswarm/lh/worker_evidence.py": {
+      "sha256": "630f303209d717d3dbe0b60d05c52837e96a78d1568d55b8dc4226d4636efdeb",
+      "source": "src/long_horizon/worker_evidence.py",
+      "source_sha256": "630f303209d717d3dbe0b60d05c52837e96a78d1568d55b8dc4226d4636efdeb"
+    },
+    "jiuwenswarm/lh/workspace_files.py": {
+      "sha256": "8b52b736d7ab082e8c08d18b0d6d85470385c2040c0533534546c9c09b7bfcfc"
+    },
+    "jiuwenswarm/long_horizon/__init__.py": {
+      "sha256": "889e83276e34f029fe44d60a19e626d9509faa70fb08ef217ac4828c1c6b3bd8",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/__init__.py",
+      "source_sha256": "889e83276e34f029fe44d60a19e626d9509faa70fb08ef217ac4828c1c6b3bd8"
+    },
+    "jiuwenswarm/long_horizon/__main__.py": {
+      "sha256": "cfc5f55872dce2796673640653b4eec6a9008bac8e7bf15c63244dbfcf0aa4df",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/__main__.py",
+      "source_sha256": "cfc5f55872dce2796673640653b4eec6a9008bac8e7bf15c63244dbfcf0aa4df"
+    },
+    "jiuwenswarm/long_horizon/benchmark_write_guard.py": {
+      "sha256": "be519488f777f948700085f17de99c5bcac51dc96e429612bda4de93e4051082"
+    },
+    "jiuwenswarm/long_horizon/checkpoints.py": {
+      "sha256": "4e3d8d7889b7f969fab26cae74c6972f94d295f1db4d05ed1cbac398d7b22c3a",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/checkpoints.py",
+      "source_sha256": "4e3d8d7889b7f969fab26cae74c6972f94d295f1db4d05ed1cbac398d7b22c3a"
+    },
+    "jiuwenswarm/long_horizon/clarification/__init__.py": {
+      "sha256": "a2027353824ca380c8f3882ae01b92ec5d81aa59cfd7a16b0bcb0de178610466",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/__init__.py",
+      "source_sha256": "a2027353824ca380c8f3882ae01b92ec5d81aa59cfd7a16b0bcb0de178610466"
+    },
+    "jiuwenswarm/long_horizon/clarification/artifacts.py": {
+      "sha256": "29b44078de381bae50660e379da7f6a11e555e4ceb141f05e5bdc41096e08835",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/artifacts.py",
+      "source_sha256": "29b44078de381bae50660e379da7f6a11e555e4ceb141f05e5bdc41096e08835"
+    },
+    "jiuwenswarm/long_horizon/clarification/budget.py": {
+      "sha256": "f709b75cab50d5dc035bf01dd350c10565c10a7f2f3122b0a9278f9e4e917306",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/budget.py",
+      "source_sha256": "f709b75cab50d5dc035bf01dd350c10565c10a7f2f3122b0a9278f9e4e917306"
+    },
+    "jiuwenswarm/long_horizon/clarification/checkpoints.py": {
+      "sha256": "9a6103a572469dd91e89b91f86a7becb525edf0e5ccae1e98a1e9f53d00c3508",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/checkpoints.py",
+      "source_sha256": "9a6103a572469dd91e89b91f86a7becb525edf0e5ccae1e98a1e9f53d00c3508"
+    },
+    "jiuwenswarm/long_horizon/clarification/compat.py": {
+      "sha256": "2f33477bccb79deac95e592069fc765dfc6d1e5c24035e4e666f95f3d8c1a765",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/compat.py",
+      "source_sha256": "2f33477bccb79deac95e592069fc765dfc6d1e5c24035e4e666f95f3d8c1a765"
+    },
+    "jiuwenswarm/long_horizon/clarification/event_evidence.py": {
+      "sha256": "f691274336b4acd9cd987f2c799b631f01c5a16cff6c7ce83643f811077c187c",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/event_evidence.py",
+      "source_sha256": "f691274336b4acd9cd987f2c799b631f01c5a16cff6c7ce83643f811077c187c"
+    },
+    "jiuwenswarm/long_horizon/clarification/evidence.py": {
+      "sha256": "5ed82bc991289844cfeb32a966582a5098dac289fc369bdc6ee749c919145af9",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/evidence.py",
+      "source_sha256": "5ed82bc991289844cfeb32a966582a5098dac289fc369bdc6ee749c919145af9"
+    },
+    "jiuwenswarm/long_horizon/clarification/model.py": {
+      "sha256": "142d86aad72cd7e3438e2d36174c3fda5c412592691afb4f15f4c134cb61c897",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/model.py",
+      "source_sha256": "142d86aad72cd7e3438e2d36174c3fda5c412592691afb4f15f4c134cb61c897"
+    },
+    "jiuwenswarm/long_horizon/clarification/model_protocol.py": {
+      "sha256": "b557a3289dc4ddbf6080f7c5aca2ac7103ceab25cdb330a7a3d15f05408bfc59",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/model_protocol.py",
+      "source_sha256": "b557a3289dc4ddbf6080f7c5aca2ac7103ceab25cdb330a7a3d15f05408bfc59"
+    },
+    "jiuwenswarm/long_horizon/clarification/prompts.py": {
+      "sha256": "d5f65d1566c164b36922ef2b048436f10ef20d75b3809699e3aedaa462cd9a87",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/prompts.py",
+      "source_sha256": "d5f65d1566c164b36922ef2b048436f10ef20d75b3809699e3aedaa462cd9a87"
+    },
+    "jiuwenswarm/long_horizon/clarification/public_checkpoint.py": {
+      "sha256": "d69472b66c39938000049854c482aaab4576b78960abe11098ef0c72a3761ef1",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/public_checkpoint.py",
+      "source_sha256": "d69472b66c39938000049854c482aaab4576b78960abe11098ef0c72a3761ef1"
+    },
+    "jiuwenswarm/long_horizon/clarification/runtime_capabilities.py": {
+      "sha256": "1248c9d9b75bd2c6ab9c55b022cdbceb189b18fb2d35ae154db0f1d1569218cd",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/runtime_capabilities.py",
+      "source_sha256": "1248c9d9b75bd2c6ab9c55b022cdbceb189b18fb2d35ae154db0f1d1569218cd"
+    },
+    "jiuwenswarm/long_horizon/clarification/service.py": {
+      "sha256": "698cb365c92667a45b74230f4e0cdc2cde7907db775c7cf1311c23e2b13a2b7b",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/service.py",
+      "source_sha256": "698cb365c92667a45b74230f4e0cdc2cde7907db775c7cf1311c23e2b13a2b7b"
+    },
+    "jiuwenswarm/long_horizon/clarification/snapshot.py": {
+      "sha256": "3806bcb5c975a7e84a30ee18b90f76161b5501810da10d2086acfe4ffc827f10",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/snapshot.py",
+      "source_sha256": "3806bcb5c975a7e84a30ee18b90f76161b5501810da10d2086acfe4ffc827f10"
+    },
+    "jiuwenswarm/long_horizon/clarification/types.py": {
+      "sha256": "2487d32520971315ee3ed6bbc27abbc7d888eeed833367980da0bf45366efb10",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/types.py",
+      "source_sha256": "2487d32520971315ee3ed6bbc27abbc7d888eeed833367980da0bf45366efb10"
+    },
+    "jiuwenswarm/long_horizon/clarification/validation.py": {
+      "sha256": "ad417502cd6f5cbbf5807d6f5ad9b59f85aea074cfa4c0eb1993ed99bddcc282",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/validation.py",
+      "source_sha256": "ad417502cd6f5cbbf5807d6f5ad9b59f85aea074cfa4c0eb1993ed99bddcc282"
+    },
+    "jiuwenswarm/long_horizon/clarification/verification.py": {
+      "sha256": "2bd8632944cdecef9f40e81557008951a101f019348473bebdeabdeca0fed7c7",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/verification.py",
+      "source_sha256": "2bd8632944cdecef9f40e81557008951a101f019348473bebdeabdeca0fed7c7"
+    },
+    "jiuwenswarm/long_horizon/controller.py": {
+      "sha256": "7674b3ddfcb87310cce6ea453f85125cdd328eaadb90e2d386d99f56e82ae8af",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/controller.py",
+      "source_sha256": "1b484ba47405b802d8cef5e973824c7102b7831dae3c4547227a38ef47e70fc1"
+    },
+    "jiuwenswarm/long_horizon/localization.py": {
+      "sha256": "6f6e44de1ebda994bef7d69e04f2191e08d548ce3fed8118ff65fc082483994e",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/localization.py",
+      "source_sha256": "a345d40d9a80bcc3830651169286452d1bec2b173d1b203cc87df231dbf17e3f"
+    },
+    "jiuwenswarm/long_horizon/memgraph.py": {
+      "sha256": "0d87d9f4b0994cb62e9cb8572a8522409e11c25423d098c46a33babb1ba6903f",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/contextgraph.py",
+      "source_sha256": "2dd66fd9c64cdf39de32d6fa70d98ad5e1335cbad19f8feb7e4e20f18aedb66e"
+    },
+    "jiuwenswarm/long_horizon/memgraph_mcp.py": {
+      "sha256": "5741a69783ea430440e665fe70150fd748b2306a2849f42915c8349e45d79120",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/contextgraph_mcp.py",
+      "source_sha256": "1ce2d08d7eda1b536753354a56deb240d8faa6ecb5831440bc5ed4250038c5a8"
+    },
+    "jiuwenswarm/long_horizon/native_entry.py": {
+      "sha256": "cf38be648d74471b6baf2194b2e1e533434d5ca676c8753b72d9e6a33a707b78",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/native_entry.py",
+      "source_sha256": "cf38be648d74471b6baf2194b2e1e533434d5ca676c8753b72d9e6a33a707b78"
+    },
+    "jiuwenswarm/long_horizon/native_tool_free.py": {
+      "sha256": "bcf2e4e105e11cec36e655dca61c2865e99d654e859bc876a6da8855b872ed18",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/native_tool_free.py",
+      "source_sha256": "a648edfd49a7d86f55d715faa7d08086c61efe7ee87d4fee69ee8e13b8984e4d"
+    },
+    "jiuwenswarm/long_horizon/native_transport_retry.py": {
+      "sha256": "c40ff93ebde2e7a1e2140411a8ad93ce31871b1d633b631dd07b620ca892e598"
+    },
+    "jiuwenswarm/long_horizon/pact/__init__.py": {
+      "sha256": "6ff3f4a07edbd9115a05a6a4733ede8de7cac30c48f59c1621a50d2b4ca3f0dc",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/__init__.py",
+      "source_sha256": "6ff3f4a07edbd9115a05a6a4733ede8de7cac30c48f59c1621a50d2b4ca3f0dc"
+    },
+    "jiuwenswarm/long_horizon/pact/benchmark.py": {
+      "sha256": "fe1de61758f998261080633e4a9332194615910cd095d82888d271b89de39dcc",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/benchmark.py",
+      "source_sha256": "fe1de61758f998261080633e4a9332194615910cd095d82888d271b89de39dcc"
+    },
+    "jiuwenswarm/long_horizon/pact/benchmark_native.py": {
+      "sha256": "c805783585bd7e7643c29989f70a6e5f3b153146de709f613428c17541a7851c",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/benchmark_native.py",
+      "source_sha256": "cf72439bc123130c942ac2a9957ba99d47d8e3f490b0f2453eb629f5e87cd8c1"
+    },
+    "jiuwenswarm/long_horizon/pact/budget.py": {
+      "sha256": "c6643f1a218e69c2431babf4c04cc7394cc3364150256e5254128b2292a31b3a",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/budget.py",
+      "source_sha256": "c6643f1a218e69c2431babf4c04cc7394cc3364150256e5254128b2292a31b3a"
+    },
+    "jiuwenswarm/long_horizon/pact/campaign.py": {
+      "sha256": "bc722873d97c85855668daf40e7f24049736212e9468734da2ad820d74f643c9",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/campaign.py",
+      "source_sha256": "bc722873d97c85855668daf40e7f24049736212e9468734da2ad820d74f643c9"
+    },
+    "jiuwenswarm/long_horizon/pact/configuration.py": {
+      "sha256": "1509069947286015ea6a5e0e3c2668ee46c8e2d5ca5a25fe16f37124d3ed2e2b",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/configuration.py",
+      "source_sha256": "1509069947286015ea6a5e0e3c2668ee46c8e2d5ca5a25fe16f37124d3ed2e2b"
+    },
+    "jiuwenswarm/long_horizon/pact/long_horizon_benchmark.py": {
+      "sha256": "24f0908d351bc297857e62f44c50845b4163a253b32695efbb5bcdd59d57e0d0",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/long_horizon_benchmark.py",
+      "source_sha256": "f68c8600e457e5c237c036a263fc4c17561a3b6a87cd820e093633562aeb1c85"
+    },
+    "jiuwenswarm/long_horizon/pact/long_horizon_evidence.py": {
+      "sha256": "0db97439974cc6e2a948263f1a1929d65a61bc027a09ee0c71057fd203c18c96",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/long_horizon_evidence.py",
+      "source_sha256": "0db97439974cc6e2a948263f1a1929d65a61bc027a09ee0c71057fd203c18c96"
+    },
+    "jiuwenswarm/long_horizon/pact/long_horizon_progress.py": {
+      "sha256": "0ea538407ab4ad0307e750725bfe42dd6ba9280fbbeb7858fd4ecf692605f992",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/long_horizon_progress.py",
+      "source_sha256": "0ea538407ab4ad0307e750725bfe42dd6ba9280fbbeb7858fd4ecf692605f992"
+    },
+    "jiuwenswarm/long_horizon/pact/protocol.py": {
+      "sha256": "d29c58375677d6c4a51fd720b875a8d24dd353a1d988379c594c1871d1dbcba1",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/protocol.py",
+      "source_sha256": "d29c58375677d6c4a51fd720b875a8d24dd353a1d988379c594c1871d1dbcba1"
+    },
+    "jiuwenswarm/long_horizon/pact/public_verification.py": {
+      "sha256": "3f3532cdc1fb7f424043e850ec5aee9bb1be78a2079fb9a63f0c6bac32ddd313",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/public_verification.py",
+      "source_sha256": "3f3532cdc1fb7f424043e850ec5aee9bb1be78a2079fb9a63f0c6bac32ddd313"
+    },
+    "jiuwenswarm/long_horizon/pact/review_context.py": {
+      "sha256": "40c11dde0018cfc4d188c57226f6b9fa41e4f3a371445f1a61d7b775bb67fa40",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/review_context.py",
+      "source_sha256": "40c11dde0018cfc4d188c57226f6b9fa41e4f3a371445f1a61d7b775bb67fa40"
+    },
+    "jiuwenswarm/long_horizon/pact/role_runner.py": {
+      "sha256": "357b94a83a46188f6b27f4a09729debd31224f859310d7a34f85919c509739ca",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/role_runner.py",
+      "source_sha256": "357b94a83a46188f6b27f4a09729debd31224f859310d7a34f85919c509739ca"
+    },
+    "jiuwenswarm/long_horizon/pact/verify_shim.py": {
+      "sha256": "80f47acb9eed9fef2171c746095d1b7eb8eee5042b4cd9d9a994dcd96f62880c",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/verify_shim.py",
+      "source_sha256": "80f47acb9eed9fef2171c746095d1b7eb8eee5042b4cd9d9a994dcd96f62880c"
+    },
+    "jiuwenswarm/long_horizon/process_kill_guard.py": {
+      "sha256": "8ab8efaba72ab0d41809dd0228f8b2d16e9e7f987c133390a7f3972350202093",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/process_kill_guard.py",
+      "source_sha256": "8ab8efaba72ab0d41809dd0228f8b2d16e9e7f987c133390a7f3972350202093"
+    },
+    "jiuwenswarm/long_horizon/recovery.py": {
+      "sha256": "a7763d02ddf51c0cad089b185019e007f833276e1719a2c1030c1c5da71f6771",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/recovery.py",
+      "source_sha256": "a7763d02ddf51c0cad089b185019e007f833276e1719a2c1030c1c5da71f6771"
+    },
+    "jiuwenswarm/long_horizon/structured.py": {
+      "sha256": "75f4730b608e584d37e708f81349ea2777216b4440441494a333f518d2ec2a9e",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/structured.py",
+      "source_sha256": "75f4730b608e584d37e708f81349ea2777216b4440441494a333f518d2ec2a9e"
+    },
+    "jiuwenswarm/long_horizon/worker.py": {
+      "sha256": "2054116975d77ca1062f2adba474093cf0668460f67a950b21918144dda759e7",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/worker.py",
+      "source_sha256": "514a8a6d9404304974d281b4adb311be0d8b229b68862a1829b8f7a44ad06cf8"
+    },
+    "jiuwenswarm/long_horizon/workflow_checkpoint.py": {
+      "sha256": "aa2f792e86034cb583c0cc4897697151c9530d3f7f62e19a85693bd4c33aa1f2",
+      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/workflow_checkpoint.py",
+      "source_sha256": "aa2f792e86034cb583c0cc4897697151c9530d3f7f62e19a85693bd4c33aa1f2"
+    }
+  }
+}

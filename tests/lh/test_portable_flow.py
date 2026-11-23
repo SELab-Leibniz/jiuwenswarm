@@ -85,6 +85,7 @@ def plugin(calls, *, fingerprint="fixture-v1", capabilities=None):
     )
 
 
+@pytest.mark.asyncio
 async def test_third_agent_runs_same_controller_without_native_packages(tmp_path, git_repo_factory):
     args, calls = trial(tmp_path, git_repo_factory), []
     outcome = await LongHorizonBenchmark(args, plugin=plugin(calls)).run()
@@ -104,6 +105,7 @@ async def test_third_agent_runs_same_controller_without_native_packages(tmp_path
 
 
 @pytest.mark.parametrize("damage", ["snapshot", "configuration", "revision"])
+@pytest.mark.asyncio
 async def test_resume_rejects_changed_source_or_binding_without_replaying_p0(tmp_path, git_repo_factory, damage):
     args, calls = trial(tmp_path, git_repo_factory, max_role_calls=2), []
     outcome = await LongHorizonBenchmark(args, plugin=plugin(calls)).run()
@@ -130,6 +132,7 @@ async def test_resume_rejects_changed_source_or_binding_without_replaying_p0(tmp
     assert not (args.workdir / "greeting.txt").exists()
 
 
+@pytest.mark.asyncio
 async def test_missing_agent_capabilities_fail_before_execution(tmp_path, git_repo_factory):
     args, calls = trial(tmp_path, git_repo_factory), []
     with pytest.raises(Exception, match="plugin must enforce"):
@@ -159,9 +162,14 @@ def test_shared_core_has_no_native_agent_imports():
                 if isinstance(node, ast.ImportFrom)
                 else []
             )
-            assert not any(m.split(".")[0] in {"chrys", "jiuwenswarm"} for m in modules), path
+            assert not any(
+                m.split(".")[0] == "chrys"
+                or (m.startswith("jiuwenswarm.") and not m.startswith("jiuwenswarm.lh."))
+                for m in modules
+            ), path
 
 
+@pytest.mark.asyncio
 async def test_cancel_stops_active_clarifier_and_preserves_admitted_p0(tmp_path, git_repo_factory):
     args, calls = trial(tmp_path, git_repo_factory), []
     started = threading.Event()
@@ -195,6 +203,7 @@ async def test_cancel_stops_active_clarifier_and_preserves_admitted_p0(tmp_path,
     assert not (args.workdir / "greeting.txt").exists()
 
 
+@pytest.mark.asyncio
 async def test_native_worker_cancellation_does_not_corrupt_core_ledger(tmp_path, git_repo_factory):
     args, calls = trial(tmp_path, git_repo_factory), []
     started = threading.Event()

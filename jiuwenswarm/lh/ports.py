@@ -20,14 +20,30 @@ from pact_core.runtime import RuntimeContractError
 @dataclass(frozen=True, slots=True)
 class Capabilities:
     isolated_worker: bool = False
-    read_only_reviewer: bool = False
+    isolated_executable_reviewer: bool = False
     frozen_clarification: bool = False
     cancellable_calls: bool = False
+    # Construction alias for older plugins; both names carry the same
+    # review-isolation guarantee and are normalized to one another.
+    read_only_reviewer: bool = False
+
+    def __post_init__(self) -> None:
+        if self.isolated_executable_reviewer or self.read_only_reviewer:
+            object.__setattr__(self, "isolated_executable_reviewer", True)
+            object.__setattr__(self, "read_only_reviewer", True)
 
     def require_long_horizon(self) -> None:
-        if not all((self.isolated_worker, self.read_only_reviewer, self.frozen_clarification, self.cancellable_calls)):
+        if not all(
+            (
+                self.isolated_worker,
+                self.isolated_executable_reviewer,
+                self.frozen_clarification,
+                self.cancellable_calls,
+            )
+        ):
             raise RuntimeContractError(
-                "plugin must enforce isolated execution, read-only review, frozen clarification and cancellation"
+                "plugin must enforce isolated execution, isolated executable review, frozen clarification "
+                "and cancellation"
             )
 
 
@@ -105,6 +121,28 @@ class ScopedAbort(threading.Event):
         return True
 
 
+@dataclass(frozen=True, slots=True)
+class ExternalQuestion:
+    """Opaque, stable question identity supplied by a native driver."""
+
+    identity: str
+    text: str
+    options: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ExternalAnswer:
+    status: Literal["answer", "pending", "timeout"]
+    text: str = ""
+
+
+class ExternalQuestionChannel(Protocol):
+    async def post(self, question: ExternalQuestion, *, cancelled: asyncio.Event) -> None: ...
+
+    async def await_answer(self, identity: str, *, timeout: float,
+                           cancelled: asyncio.Event) -> ExternalAnswer: ...
+
+
 @dataclass
 class RoleBoundary:
     """Normalize native cancellation to a status the pinned Core ledger accepts."""
@@ -125,6 +163,14 @@ class RoleBoundary:
 
     def probe(self) -> Any:
         return self.native.probe()
+
+    def reviewer_process_roots(self) -> tuple[int, ...]:
+        roots = getattr(self.native, "reviewer_process_roots", None)
+        return tuple(roots()) if callable(roots) else ()
+
+    @property
+    def reviewer_processes_shared(self) -> bool:
+        return bool(getattr(self.native, "reviewer_processes_shared", False))
 
     def run_turn(self, request: Any) -> Any:
         try:
@@ -197,6 +243,7 @@ class ClarificationContext:
     session_dir: Path
     admission: Admission
     deadline: float | None = None
+    checkpoint: tuple[Path, str] | None = None
 
 
 class Plugin(Protocol):

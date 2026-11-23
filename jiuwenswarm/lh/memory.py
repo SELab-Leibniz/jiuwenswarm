@@ -7,7 +7,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import tempfile
 from pathlib import Path
+
+from .capacity import capacity_scale, model_content_limit
 
 
 class CommandMemory:
@@ -29,24 +32,50 @@ class CommandMemory:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
+        stdout_spool = tempfile.SpooledTemporaryFile(max_size=1024 * 1024)
+        stderr_spool = tempfile.SpooledTemporaryFile(max_size=1024 * 1024)
+
+        async def drain(stream, spool) -> None:
+            assert stream is not None
+            while True:
+                chunk = await stream.read(1024 * 1024)
+                if not chunk:
+                    return
+                spool.write(chunk)
+
         try:
-            stdout, _stderr = await process.communicate(
-                json.dumps(
-                    {
-                        "schema": "long-horizon/memory-query/v1",
-                        "requirement": task,
-                        "snapshot_root": context.snapshot.roots[0].view_root,
-                        "receipt_sha256": self.receipt_sha256,
-                    }
-                ).encode()
+            request = json.dumps(
+                {
+                    "schema": "long-horizon/memory-query/v1",
+                    "requirement": task,
+                    "snapshot_root": context.snapshot.roots[0].view_root,
+                    "receipt_sha256": self.receipt_sha256,
+                }
+            ).encode()
+            assert process.stdin is not None
+            process.stdin.write(request)
+            await process.stdin.drain()
+            process.stdin.close()
+            await asyncio.gather(
+                drain(process.stdout, stdout_spool),
+                drain(process.stderr, stderr_spool),
+                process.wait(),
             )
-            if process.returncode != 0 or len(stdout) > 64_000:
-                raise ValueError("memory provider failed or exceeded its output limit")
-            value = json.loads(stdout)
+            if process.returncode != 0:
+                raise ValueError("memory provider failed")
+            stdout_spool.seek(0)
+            raw = stdout_spool.read()
+            if capacity_scale() == 1 and len(raw) > 64_000:
+                raise ValueError("memory provider exceeded its output limit")
+            value = json.loads(raw)
             if not isinstance(value, dict) or not isinstance(value.get("text"), str):
                 raise ValueError("memory provider must return a JSON object with text")
-            return value["text"][:12_000]
+            # The provider output is spooled, never rejected for size.  The
+            # prompt bound remains the opt-in content capacity.
+            return value["text"][:model_content_limit(12_000)]
         finally:
+            stdout_spool.close()
+            stderr_spool.close()
             if process.returncode is None:
                 process.terminate()
                 try:

@@ -22,7 +22,7 @@ class PublicWritePolicyTests(unittest.TestCase):
         # Exercise real file snapshots/cleanup on hosts without Linux DAC.
         # Privilege setup is stubbed here; LinuxWriteGuardTests covers setpriv.
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             workspace, state = root / "workspace", root / "state"
             workspace.mkdir()
             state.mkdir()

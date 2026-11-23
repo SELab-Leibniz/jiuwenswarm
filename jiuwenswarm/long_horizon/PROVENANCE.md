@@ -60,6 +60,24 @@ BenchDriver interfaces differ from the legacy wheel. Both are explicitly pinned
 by their selecting benchmark configuration; they cannot be silently substituted.
 The original JiuwenSwarm uv.lock and SDK revisions remain unchanged.
 
+## Current embedded suite sync (2026-11-23)
+
+The `jiuwenswarm.lh` entry now selects the shared suite from
+`SELab-Leibniz/long-horizon-controller@ccb4adc6ab3bf1e592db978603a0a165ae3c2c47`.
+Its native bridge is synchronized from that revision's
+`vendor/jiuwen-lh-native/jiuwenswarm/long_horizon` subtree, including public-check
+validation, planning checkpoints, bounded event retention, reviewer access
+preflight and stage-local write isolation. The integration retains its MemGraph
+names and disabled default, native transport retry rail, and opt-in public-test
+write guard. The native SDK and both ordinary CLI entrypoints remain selected
+by the JiuwenSwarm checkout.
+
+This suite requires the externally supplied
+`pact-core==0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1` wheel, SHA-256
+`190ea348e1897c76159a65dd6e604cfb1e63a9fca5dd0776c092420b5675611f`.
+Earlier wheel records below describe historical treatments. Source and local
+adaptations for this sync are recorded in `../lh/SOURCE.json`.
+
 
 ## Caller-owned repeat-cycle stop (2026-09-29)
 

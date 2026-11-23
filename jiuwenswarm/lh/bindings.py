@@ -18,12 +18,6 @@ def arguments(value: Any) -> BenchmarkArguments:
     return BenchmarkArguments(**asdict(value))
 
 
-def chrys_long_horizon(args: Any, **options: Any) -> LongHorizonBenchmark:
-    from .plugins.chrys import ChrysPlugin
-
-    return LongHorizonBenchmark(arguments(args), plugin=ChrysPlugin(**options))
-
-
 def jiuwen_long_horizon(args: Any, **options: Any) -> LongHorizonBenchmark:
     from .plugins.jiuwen import JiuwenPlugin
 

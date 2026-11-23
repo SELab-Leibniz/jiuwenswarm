@@ -159,6 +159,59 @@ class CoreRegression(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(s["internal_accepted"])
         self.assertEqual((Path(s["export"]["snapshot"]) / "module.py").read_text(), GOOD)
 
+    async def test_suite_p1_sealed_source_exists_before_public_check_infrastructure_error(self):
+        original = LongHorizonBenchmark._check_candidate
+        observed = []
+
+        def fail_after_seal(controller, runtime, state, stage):
+            if stage == "p1":
+                exports = list((controller._args.output / "stages").glob("p1-*/export.json"))
+                observed.extend(exports)
+                self.assertEqual(len(exports), 1)
+                self.assertEqual((exports[0].parent / "snapshot/module.py").read_text(), GOOD)
+                raise OSError(5, "synthetic public check transport failure")
+            return original(controller, runtime, state, stage)
+
+        with patch.object(LongHorizonBenchmark, "_check_candidate", fail_after_seal):
+            # Controller may convert an infrastructure exception into its own
+            # failed outcome; the assertion is made at the real call boundary.
+            try:
+                await self.run_fixture(BAD, [(BAD, "completed"), (GOOD, "completed")])
+            except OSError:
+                pass
+        self.assertEqual(len(observed), 1)
+
+    async def test_suite_p1_registers_generated_methods_before_current_complete_verification(self):
+        original = LongHorizonBenchmark._check_candidate
+        observed = []
+        pair = original_task_pair("Synthetic public requirement")
+        pair["public_verification"] = {
+            "status": "ready",
+            "checks": [{"id": "synthetic-method", "command": VERIFY, "target_ac_ids": ["original-task-complete"]}],
+        }
+
+        def check_current_methods(controller, runtime, state, stage):
+            if stage != "p1":
+                return original(controller, runtime, state, stage)
+            assert len(state.checks) == 1
+            assert state.verification is None
+            checked = original(controller, runtime, state, stage)
+            assert checked.verification is not None
+            names = {row["name"] for row in checked.verification.check_results}
+            assert names == {"public-1", "suite-synthetic-method"}
+            observed.append(names)
+            raise OSError(5, "synthetic stop after current verification")
+
+        with (
+            patch.object(FixturePlugin, "generate_pact_input", AsyncMock(return_value=pair)),
+            patch.object(LongHorizonBenchmark, "_check_candidate", check_current_methods),
+        ):
+            try:
+                await self.run_fixture(BAD, [(BAD, "completed"), (GOOD, "completed")])
+            except OSError:
+                pass
+        self.assertEqual(len(observed), 1)
+
     async def test_expired_global_budget_admits_no_model_call(self):
         _, _, calls, outcome, s = await self.run_fixture(GOOD, [], expired=True)
         self.assertEqual(calls["calls"], [])

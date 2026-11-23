@@ -58,6 +58,20 @@ def build_parser(prog: str = "jiuwenswarm --lh") -> argparse.ArgumentParser:
     parser.add_argument("--memgraph-receipt", type=Path, help="Frozen corpus receipt required with --memgraph-command")
     parser.add_argument("--budget-seconds", "--timeout", dest="budget_seconds", type=float)
     parser.add_argument("--budget-started-at-unix", type=float)
+    parser.add_argument("--finish-reserve-seconds", type=float)
+    parser.add_argument("--cutoff-at-unix", type=float)
+    parser.add_argument("--transport-recovery-attempts", type=int, default=3)
+    parser.add_argument("--reviewer-uid", type=int)
+    parser.add_argument("--reviewer-gid", type=int)
+    parser.add_argument("--review-diagnosis-limit", type=int)
+    parser.add_argument("--review-acceptance-limit", type=int)
+    parser.add_argument("--early-audit-max-rounds", type=int, default=2)
+    parser.add_argument("--early-audit-min-remaining-ratio", type=float, default=0.40)
+    parser.add_argument("--early-audit-min-remaining-seconds", type=float, default=2700.0)
+    parser.add_argument("--early-audit-max-seconds", type=float)
+    parser.add_argument("--allow-user-interaction", action="store_true")
+    parser.add_argument("--clarification-max-rounds", type=int, default=3)
+    parser.add_argument("--clarification-budget-ratio", type=float, default=0.20)
     parser.add_argument(
         "--control-profile",
         choices=("legacy", "bounded"),
@@ -149,6 +163,20 @@ def arguments_from_namespace(options: argparse.Namespace) -> Any:
         snapshot_max_total_bytes=options.snapshot_max_total_bytes,
         budget_seconds=options.budget_seconds if options.budget_seconds is not None else 172800.0 if suite else 3600.0,
         budget_started_at_unix=options.budget_started_at_unix,
+        finish_reserve_override_seconds=options.finish_reserve_seconds,
+        cutoff_at_unix=options.cutoff_at_unix,
+        transport_recovery_attempts=options.transport_recovery_attempts,
+        reviewer_uid=options.reviewer_uid,
+        reviewer_gid=options.reviewer_gid,
+        review_diagnosis_limit=options.review_diagnosis_limit,
+        review_acceptance_limit=options.review_acceptance_limit,
+        early_audit_max_rounds=options.early_audit_max_rounds,
+        early_audit_min_remaining_ratio=options.early_audit_min_remaining_ratio,
+        early_audit_min_remaining_seconds=options.early_audit_min_remaining_seconds,
+        early_audit_max_seconds=options.early_audit_max_seconds,
+        allow_user_interaction=options.allow_user_interaction,
+        clarification_max_rounds=options.clarification_max_rounds,
+        clarification_budget_ratio=options.clarification_budget_ratio,
         max_role_calls=options.max_role_calls if options.max_role_calls is not None else None if suite else 32,
         max_turns=None if deadline_only else options.max_turns if options.max_turns is not None else 64 if suite else 3,
         deadline_only_budget_seconds=options.budget_seconds if deadline_only else None,

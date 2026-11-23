@@ -37,7 +37,9 @@ def test_check_uses_original_global_deadline_after_preprocessing(tmp_path):
     assert policy.admissions[-1]["admitted_seconds"] == 280
     payload = json.loads(policy.path.read_text())
     assert payload["check_cap_seconds"] is None
-    assert payload["check_reserve_seconds"] == 30
+    assert payload["check_reserve_seconds"] == 28.5
+    assert payload["finish_reserve_seconds"] == 28.5
+    assert payload["finish_reserve_source"] == "default"
     assert payload["check_budget_policy"] == "task_remaining_global_v1"
 
 
@@ -51,22 +53,26 @@ def test_positive_sub30_budget_is_admitted_and_expired_is_not_extended(tmp_path)
     assert policy.admissions[-1]["admitted_seconds"] == 0
 
 
-def test_other_phase_reservations_are_unchanged(tmp_path):
+def test_other_phase_reservations_use_the_dynamic_finish_reserve(tmp_path):
     policy = phase(tmp_path, [350])
-    assert policy.deadline_for("p0") == 410
+    assert policy.deadline_for("p0") == 376
     assert policy.deadline_for("planning") == 485
-    assert policy.deadline_for("p1") == 860
+    # The tight branch keeps the Worker launchable with only the finish reserve;
+    # A=600 for this sub-hour window would otherwise drive the cutoff behind now.
+    assert policy.deadline_for("p1") == 826
+    assert policy.admissions[-1]["acceptance_reserve_skipped"] is True
 
 
 @pytest.mark.parametrize("now,expected_calls", [(350.0, 1), (999.75, 1), (1000.0, 0), (1001.0, 0)])
 def test_controller_forwards_original_deadline_or_refuses_expired(tmp_path, now, expected_calls):
     controller = object.__new__(LongHorizonBenchmark)
+    controller._rpc_public_check = False
     controller._phase_policy = phase(tmp_path, [now])
     controller._budget = SimpleNamespace(clock=lambda: now)
     controller._abort = threading.Event()
     controller._gate = SimpleNamespace(observed=lambda _: False, record=Mock(), selected=None)
     controller._invocation = SimpleNamespace(state=None)
-    state = SimpleNamespace(candidate=object(), verification=None, work_id="synthetic", revision=4)
+    state = SimpleNamespace(candidate=object(), verification=None, work_id="synthetic", revision=4, status="active")
     runtime = SimpleNamespace(verify_candidate=Mock(return_value=state))
     assert controller._check_candidate(runtime, state, "p1") is state
     assert runtime.verify_candidate.call_count == expected_calls
@@ -130,11 +136,17 @@ async def test_real_core_receives_more_than_old30_and1800_caps(tmp_path):
     with patch.object(verification, "_run_task_command", side_effect=command):
         await controller.run()
     assert timeouts
-    assert all(3800 < seconds <= 3900 for seconds, _ in timeouts)
-    assert all(deadline == args.budget_started_at_unix + args.budget_seconds for _, deadline in timeouts)
+    # Direct host checks retain the original per-command ceiling and the
+    # original hard clock; a review's own internal re-check still uses the
+    # review admission window and keeps its soft model boundary.
+    assert all(1800 < seconds < 3900 for seconds, _ in timeouts)
+    assert any(deadline == args.original_deadline_unix for _, deadline in timeouts)
+    assert all(
+        deadline in (args.original_deadline_unix, args.soft_deadline_unix) for _, deadline in timeouts
+    )
     assert controller._invocation.state.policy.verify_timeout_seconds == 4100
     frozen = controller._cli_frozen
-    assert frozen["control_profile"] == "bounded-phases-public-candidate-gate-v2-remaining-check-budget"
+    assert frozen["control_profile"] == "bounded-phases-public-candidate-gate-v3-check-outcome-routing"
 
 
 def public_verification(tmp_path, *, deadline, command="fixture-command", timeout_seconds=4100):
@@ -295,5 +307,6 @@ def test_explicit_cancellation_kills_process_group_and_preserves_primary(tmp_pat
             verification._run_task_command(
                 command, workdir=tmp_path, timeout_seconds=4100, env_extra={}, deadline=time.time() + 30
             )
-    kill.assert_called_once_with(calls[0].pid, signal.SIGKILL)
+    kill_calls = [call.args for call in kill.call_args_list if call.args[1] == signal.SIGKILL]
+    assert kill_calls == [(calls[0].pid, signal.SIGKILL)]
     assert calls[0].returncode is not None

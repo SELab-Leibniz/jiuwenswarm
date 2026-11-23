@@ -1,9 +1,19 @@
 # `--lh`：long-horizon 控制器
 
 本目录是 [long-horizon-controller](https://github.com/SELab-Leibniz/long-horizon-controller)
-`965e3704d5cdcec8d2f838295ae6624d2e802c11` 中与 agent 无关的共享控制器核心，
+`ccb4adc6ab3bf1e592db978603a0a165ae3c2c47` 中与 agent 无关的共享控制器核心，
 只保留 JiuwenSwarm 原生 worker 插件和通用插件。Harbor/Terminal-Bench、Chrys、
 Chrys ACP、C7 基线和固定公共 CA overlay 仍留在控制器仓库，不随本集成发布。
+候选归档、公开检查回执和交付使用的通用辅助函数随核心一起迁入；
+来源与本地适配记录在 `SOURCE.json`。
+
+本次 suite 同步包含：
+
+- 按当前 Work、输入与来源绑定的规划断点，以及独立 criterion 的并发复审和恢复。
+- 隔离的可执行 Reviewer、检查方法诊断、审查准入与修复调度。
+- 交付预留时间、检查生命周期、候选归档，以及基于完整需求的提前验收审计。
+- 公开参考程序的多检查点比较；参考不可用、候选差异与可信回执分别记录。
+- 原生事件的有界保留、内存压力证据、只读阶段的状态与日志隔离，以及 shell 进程终止保护。
 
 ## 入口
 
@@ -46,6 +56,12 @@ P1 → 审查与修复循环 → 验收与交付，由 PACT Core 管理公开检
 | `--config-template` | 当前激活的 `config.yaml`；必须不含明文密钥（用环境变量引用） |
 | `--budget-seconds` / `--timeout` | suite 48 小时，benchmark 1 小时 |
 
+`--finish-reserve-seconds` / `--cutoff-at-unix` 绑定交付时间边界；
+`--review-diagnosis-limit` / `--review-acceptance-limit` 设置审查熔断上限；
+`--clarification-max-rounds` / `--clarification-budget-ratio` 控制澄清预算。
+无人值守时默认按 suite 策略处理未决问题，`--allow-user-interaction` 保留人工答复等待。
+Linux root 环境下可通过 `--reviewer-uid` / `--reviewer-gid` 配置专用 Reviewer 身份。
+
 ## MemGraph（默认关闭）
 
 原 ContextGraph 集成已改名为 MemGraph，默认关闭：
@@ -59,6 +75,14 @@ P1 → 审查与修复循环 → 验收与交付，由 PACT Core 管理公开检
 
 ## 依赖
 
-控制器需要 PACT Core `pact-core==0.2.0.dev0+bytes1.deadline1.turns1`，该 wheel
-由控制器仓库的 `vendor/build_*_wheel.py` 构建，不提交到本仓库，也不加入默认安装；
-只有使用 `--lh` 时才导入。
+控制器需要 PACT Core `pact-core==0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1`。
+wheel 位于上述固定控制器提交的 `vendor/`：
+
+```text
+pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl
+SHA256: 190ea348e1897c76159a65dd6e604cfb1e63a9fca5dd0776c092420b5675611f
+```
+
+安装前按 SHA256 核对该 wheel，再运行 `uv pip install /path/to/the/wheel.whl`。
+它不提交到本仓库，也不加入默认安装；只有使用 `--lh` 时才导入。
+旧版 `turns1` wheel 缺少本次 suite 使用的检查生命周期接口。

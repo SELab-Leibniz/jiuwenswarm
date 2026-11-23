@@ -17,6 +17,7 @@ from jiuwenswarm.lh.worker_evidence import WORKER_EVIDENCE_GUIDANCE_VERSION, wor
 
 
 @pytest.mark.parametrize("control_profile", ["bounded", "legacy"])
+@pytest.mark.asyncio
 async def test_timeonly_worker_advice_keeps_both_frozen_identities_and_resume_guard(
     tmp_path, git_repo_factory, monkeypatch, control_profile
 ):

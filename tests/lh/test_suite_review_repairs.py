@@ -21,6 +21,11 @@ from jiuwenswarm.lh.file_artifacts import FileArtifacts, Root, Snapshot
 from jiuwenswarm.lh.plugins.generic import GenericPlugin
 from jiuwenswarm.lh.progress import ReviewProgressGuard
 
+# Five to eight git-backed Core turns take roughly 100s on the slowest
+# validation host, so the default 120s fixture budget expires under parallel
+# load. These controls assert stop reasons, not budget exhaustion.
+SLOW_CORE_BUDGET_SECONDS = 600
+
 
 def reviewed_state(root: Path, worker: int, *, reason: str = "feedback_recorded"):
     candidate = CandidateRef("work", Path(f"candidate-{worker}.json"), f"checkpoint-{worker}", "same-tree")
@@ -114,13 +119,16 @@ def test_changed_inputs_missing_verification_and_worker_gaps_break_or_delay_stre
     assert len(guard.evidence()["reviewed_inputs"]) == 1
 
 
-def test_actual_review_text_changes_break_streak_even_with_identical_public_reason_summary(tmp_path):
+def test_review_wording_changes_do_not_reset_gap_progress_by_themselves(tmp_path):
     guard = ReviewProgressGuard()
     assert not guard.observe(reviewed_state(tmp_path, 1), 1)
     assert not guard.observe(reviewed_state(tmp_path, 2), 2)
     changed = reviewed_state(tmp_path, 3)
     changed.review.artifact.write_text("Now fix a different public behavior.\n")
-    assert not guard.observe(changed, 3)
+    # Gap identity, closed gaps and check improvement decide progress; wording
+    # alone must not interrupt a genuine no-progress streak.
+    assert guard.observe(changed, 3)
+    assert guard.stop_reason == "review_no_progress"
 
 
 @pytest.mark.parametrize("damage", ["missing", "empty"])
@@ -137,8 +145,15 @@ def test_unavailable_review_text_does_not_establish_reviewed_no_progress(tmp_pat
 
 
 @pytest.mark.parametrize("missing", [False, True])
+@pytest.mark.asyncio
 async def test_real_core_one_review_is_not_recounted_at_long_review_interval(tmp_path, git_repo_factory, missing):
-    args = replace(trial(tmp_path, git_repo_factory), review_interval=10, max_role_calls=100, max_turns=5)
+    args = replace(
+        trial(tmp_path, git_repo_factory),
+        review_interval=10,
+        max_role_calls=100,
+        max_turns=5,
+        budget_seconds=SLOW_CORE_BUDGET_SECONDS,
+    )
     calls = []
 
     class Reviewer(SuiteAgent):
@@ -156,6 +171,14 @@ async def test_real_core_one_review_is_not_recounted_at_long_review_interval(tmp
     )
     outcome = await LongHorizonBenchmark(args, plugin=configured).run()
     report = json.loads(outcome.selection.read_text())
+    print(
+        "DEBUG",
+        outcome.stop_reason,
+        report.get("stop_reason"),
+        json.loads((args.workdir / ".pact/bench/trials/suite-trial/review-admissions.json").read_text())
+        if (args.workdir / ".pact/bench/trials/suite-trial/review-admissions.json").exists()
+        else None,
+    )
     assert not outcome.internal_failure, report["internal_failure"]
     assert report["stop_reason"] == "max_turns"
     assert not (args.output / "no-progress-stop.json").exists()
@@ -168,8 +191,14 @@ async def test_real_core_one_review_is_not_recounted_at_long_review_interval(tmp
     assert report["external_grade"]["status"] == "not_run"
 
 
-async def test_real_core_default_review_cadence_still_stops_three_valid_identical_reviews(tmp_path, git_repo_factory):
-    args = replace(trial(tmp_path, git_repo_factory), max_role_calls=100, max_turns=8)
+@pytest.mark.asyncio
+async def test_real_core_pauses_repeat_diagnosis_after_two_evidence_free_rounds(tmp_path, git_repo_factory):
+    args = replace(
+        trial(tmp_path, git_repo_factory),
+        max_role_calls=100,
+        max_turns=8,
+        budget_seconds=SLOW_CORE_BUDGET_SECONDS,
+    )
 
     class UnchangedFailingWorker(SuiteAgent):
         def run_turn(self, request):
@@ -193,11 +222,17 @@ async def test_real_core_default_review_cadence_still_stops_three_valid_identica
     outcome = await LongHorizonBenchmark(args, plugin=configured).run()
     report = json.loads(outcome.selection.read_text())
     assert not outcome.internal_failure, report["internal_failure"]
-    assert report["stop_reason"] == "no_progress_repeated_reviews"
-    evidence = json.loads((args.output / "no-progress-stop.json").read_text())
-    assert evidence["review_interval"] == 2
-    assert [row["completed_workers"] for row in evidence["reviewed_inputs"]] == [2, 4, 6]
-    assert len({row["review"] for row in evidence["reviewed_inputs"]}) == 3
+    # Two evidence-free diagnostics pause diagnosis; the retained repair path
+    # then runs to the explicit turn cap instead of spending another review.
+    assert report["stop_reason"] == "max_turns"
+    admissions = json.loads((args.workdir / ".pact/bench/trials/suite-trial/review-admissions.json").read_text())
+    assert admissions["trial"] == 2
+    [counted] = admissions["keys"].values()
+    assert counted["count"] == 2 and counted["tree"] == report["core_candidate"]["tree"]
+    assert admissions["refusals"] == []
+    progress = json.loads((args.output / "review-progress.json").read_text())
+    assert progress["diagnosis_paused"] is True
+    assert not (args.output / "no-progress-stop.json").exists()
     assert not report["internal_accepted"]
     assert report["external_grade"]["status"] == "not_run"
 
@@ -252,6 +287,7 @@ def test_cli_preserves_positive_explicit_role_limit(workflow):
     assert arguments_from_namespace(options).config().max_role_calls == 7
 
 
+@pytest.mark.asyncio
 async def test_actual_generic_suite_keeps_executable_s0_and_detects_mode_only_tampering(tmp_path, git_repo_factory):
     args, calls = trial(tmp_path, git_repo_factory), []
     script = args.workdir / "run-public.sh"
@@ -273,7 +309,11 @@ async def test_actual_generic_suite_keeps_executable_s0_and_detects_mode_only_ta
     proposal_views = {directory for label, directory, _ in calls if label.startswith("[SUITE_PROPOSAL")}
     assert len([label for label, _, _ in calls if label.startswith("[SUITE_PROPOSAL")]) == 3
     assert proposal_views
-    assert all(stat.S_IMODE((directory / script.name).stat().st_mode) == 0o755 for directory in proposal_views)
+    # Side calls now execute in one-time copies, so their assigned workdirs are
+    # not the frozen view and are removed after the call.  The frozen S0 file
+    # keeps its executable mode for the real gates.
+    assert all(Path(directory) != Path(snapshot.roots[0].view_root) for directory in proposal_views)
+    assert all(not Path(directory).exists() for directory in proposal_views)
     frozen.chmod(0o644)
     with pytest.raises(RuntimeContractError, match="file modes changed"):
         artifacts.validate(snapshot)

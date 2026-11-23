@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import inspect
 import time
 from typing import Any
+from uuid import uuid4
 
 from pact_core.runtime import RuntimeContractError
 
 from ..ports import ClarificationContext, ExecutionBinding, PluginSpec
+from ..reviewer_privilege import ReviewerLaunchPolicy
 from .native import NativeClarification
 from .transport_recovery import RecoveringJiuwenWorker, recovery_configuration
 
 
 class JiuwenPlugin(NativeClarification):
     spec = PluginSpec.for_agent("jiuwenswarm")
+    resume_completed_planning = True
+    # A separate native model/transport session per original criterion. The
+    # controller only enables this for the real Jiuwen native suite.
+    public_criterion_concurrency = 4
 
     def __init__(
         self,
@@ -68,17 +76,27 @@ class JiuwenPlugin(NativeClarification):
 
         self._remember_execution(binding, args, {"loop": loop, "invocation_id": invocation_id, "abort": abort})
 
-        return (self._adapter_factory or NativeBenchmarkAdapter)(
-            semantic_role=role,
-            worker=self._recovering_worker
+        options = {
+            "semantic_role": role,
+            "worker": self._recovering_worker
             if args.workflow == "suite" and self._recovering_worker is not None
             else self._worker,
-            outer_loop=loop,
-            invocation_id=invocation_id,
-            output_dir=args.output / "native-roles",
-            abort_event=abort,
-            expected_fingerprint=binding.fingerprint,
-        )
+            "outer_loop": loop,
+            "invocation_id": invocation_id,
+            "output_dir": args.output / "native-roles" / uuid4().hex,
+            "abort_event": abort,
+            "expected_fingerprint": binding.fingerprint,
+        }
+        if self._adapter_factory is None:
+            # The controller's main Reviewer gets a private executable copy.
+            # Read-only side calls select "read_only" on the same args object.
+            options["executable_reviewer"] = (
+                role == "reviewer"
+                and getattr(args, "reviewer_execution", "isolated_executable") == "isolated_executable"
+            )
+            if role == "reviewer":
+                options["reviewer_launch_policy"] = ReviewerLaunchPolicy.from_args(args)
+        return (self._adapter_factory or NativeBenchmarkAdapter)(**options)
 
     def default_runner(self, context: ClarificationContext) -> Any:
         from jiuwenswarm.long_horizon.clarification.model import JiuwenClarificationModel
@@ -88,10 +106,14 @@ class JiuwenPlugin(NativeClarification):
         remaining = context.deadline - time.time()
         if remaining <= 0:
             raise self.artifacts.exhausted("clarification has no remaining admitted trial time")
-        return JiuwenClarificationModel(
+        runner = JiuwenClarificationModel(
             worker=self._worker,
             snapshot=context.snapshot,
-            output_dir=context.session_dir,
+            output_dir=context.session_dir / "native-attempts" / uuid4().hex,
             side_call_admission=context.admission,
             timeout_seconds=remaining,
+            checkpoint_identity={"scope": "own-work-stages/v1", "work_scope": str(context.session_dir.absolute())},
         )
+        runner.public_spec_shim = False
+        return runner
+

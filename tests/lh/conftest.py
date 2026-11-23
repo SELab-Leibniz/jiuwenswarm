@@ -29,3 +29,12 @@ def git_repo_factory():
 @pytest.fixture(autouse=True)
 def isolated_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("CHRYS_SESSION_ROOT_DIR", str(tmp_path / "sessions"))
+
+
+@pytest.fixture(autouse=True)
+def isolated_side_call_recovery_state():
+    from jiuwenswarm.lh.reviewer_execution import clear_side_call_integrity_state
+
+    clear_side_call_integrity_state()
+    yield
+    clear_side_call_integrity_state()

@@ -38,18 +38,44 @@ def contained(root: Path, path: Path) -> str:
     return resolved.relative_to(root.resolve()).as_posix()
 
 
+def contained_in_roots(
+    path: Path, *, output_root: Path, archive_roots: tuple[Path, ...] = ()
+) -> dict[str, str]:
+    """Locate evidence under the output or one explicitly trusted archive root.
+
+    Archive candidates are exported outside ``output`` by design.  Only the
+    output and the archive roots supplied by the controller are trusted; a
+    symlink or ``..`` that resolves anywhere else still fails.
+    """
+    resolved = path.resolve()
+    output = output_root.resolve()
+    if resolved.is_relative_to(output):
+        return {"root": "output", "path": resolved.relative_to(output).as_posix()}
+    for archive_root in archive_roots:
+        root = archive_root.resolve()
+        if resolved.is_relative_to(root):
+            return {"root": "archive", "path": resolved.relative_to(root).as_posix()}
+    raise RuntimeContractError(f"evidence path escapes the output root and trusted archive roots: {path}")
+
+
 def receipt_payload(receipt: ExportReceipt) -> dict[str, object]:
     return json.loads(json.dumps(asdict(receipt), ensure_ascii=True, default=str))
 
 
-def publish_selection(output_root: Path, payload: dict[str, object], *, schema: str) -> Path:
+def publish_selection(
+    output_root: Path,
+    payload: dict[str, object],
+    *,
+    schema: str,
+    archive_roots: tuple[Path, ...] = (),
+) -> Path:
     if payload.get("schema") != schema:
         raise RuntimeContractError("selection uses a different result schema")
     export = payload.get("export")
     if export is not None:
         if not isinstance(export, dict) or not isinstance(export.get("artifact"), str):
             raise RuntimeContractError("selection export must be an encoded ExportReceipt")
-        contained(output_root, Path(export["artifact"]))
+        contained_in_roots(Path(export["artifact"]), output_root=output_root, archive_roots=archive_roots)
     target = output_root / "selection.json"
     write_json_atomic(target, json.loads(json.dumps(payload, ensure_ascii=True, default=str)))
     return target

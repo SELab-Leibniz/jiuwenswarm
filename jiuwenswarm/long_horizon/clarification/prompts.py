@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from .types import (
     ClarificationProposal,
@@ -22,7 +23,28 @@ PROPOSAL_COUNT = 3
 MIN_VALID_PROPOSALS = 1
 SELECTOR_COUNT = 1
 MAX_FINAL_POINTS = 5
-MAX_FINAL_CHARS = 1400
+
+
+_CAPACITY_SCALE_ENV = "LONG_HORIZON_CAPACITY_SCALE"
+
+
+def _capacity_scale() -> int:
+    raw = os.environ.get(_CAPACITY_SCALE_ENV, "").strip()
+    if not raw:
+        return 1
+    try:
+        value = int(raw, 10)
+    except (TypeError, ValueError):
+        raise ValueError(f"{_CAPACITY_SCALE_ENV} must be a positive integer") from None
+    if isinstance(value, bool) or not 1 <= value <= 10_000:
+        raise ValueError(f"{_CAPACITY_SCALE_ENV} must be an integer from 1 to 10000")
+    return value
+
+
+def _scaled(value: int) -> int:
+    return max(1, int(value) * _capacity_scale())
+
+MAX_FINAL_CHARS = _scaled(1400)
 
 _PROPOSAL_INSTRUCTIONS = """You are an internal Chrys requirement-clarification agent.
 Work read-only in the frozen pre-implementation repository snapshot. Investigation and final

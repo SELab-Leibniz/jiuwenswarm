@@ -8,11 +8,10 @@ import os
 import re
 import stat
 from pathlib import Path
-from typing import Any
 
-from .snapshot import WorkspaceSnapshot
-from .compat import validate_link_free_directory
 from .budget import SideCallIntegrityError
+from .compat import validate_link_free_directory
+from .snapshot import WorkspaceSnapshot
 from .types import ClarificationProposal, InvestigationToolCall, VerifiedEvidenceReference
 from .validation import _anchor_line_range, _proposal_current_repo_anchors
 
@@ -131,30 +130,189 @@ def _relative_path(value: str, root: Path) -> tuple[str, Path] | None:
     return relative.as_posix(), resolved
 
 
-def _observed_lines(source: str, result: str) -> tuple[int, int] | None:
-    """Require source bytes in an actual read result, allowing line-number prefixes."""
-    source_lines = source.splitlines()
+_PAGE_START = re.compile(r"^\[read_file (?:page=|last=)", re.MULTILINE)
+_PAGE_FOOTER = re.compile(
+    r"\[read_file (?P<last>last=true )?page=[1-9][0-9]* source_id=(?P<id>rfp1_[a-f0-9]{32}) "
+    r"rows=(?P<start>[0-9]+)-(?P<end>[0-9]+) "
+    r"(?:next_offset=(?P<next>[0-9]+) has_more=true last=false|complete=(?:true|false)) "
+    r"full_sha256=(?P<sha>[a-f0-9]{64})(?: total_lines=(?P<total>[0-9]+))?\]"
+)
+
+
+def _read_integer(value: object) -> int:
+    if type(value) is int or isinstance(value, str):
+        return int(value)
+    raise ValueError("invalid read window")
+
+
+def _receipt_range(source: str, result: str, skip: int,
+                   limit: int | None, cursor: object) -> tuple[int, int] | None:
+    """Verify the native reader's final footer and every page line against the frozen file."""
+    body, separator, footer = result.rstrip("\n").rpartition("\n\n")
+    match = _PAGE_FOOTER.fullmatch(footer)
+    if not separator or not match or match["sha"] != hashlib.sha256(source.encode("utf-8")).hexdigest():
+        return None
+    # The native reader splits raw files on LF and strips a CR before it.
+    # Unicode separators inside a physical line must not shift later rows.
+    source_lines = source.removesuffix("\n").split("\n")
+    start, end = int(match["start"]), int(match["end"])
+    if not 1 <= start <= end <= len(source_lines) or (limit is not None and end - start + 1 > limit):
+        return None
+    if match["last"]:
+        if match["next"] or match["total"] != str(len(source_lines)) or end != len(source_lines):
+            return None
+    elif match["total"] or match["next"] != str(end) or end >= len(source_lines):
+        return None
+
+    if cursor is not None:
+        if isinstance(cursor, str):
+            cursor = {"source_id": cursor}
+        if not isinstance(cursor, dict) or cursor.get("source_id") not in (None, match["id"]):
+            return None
+        if any(key in cursor for key in ("next_offset", "offset", "next_byte")):
+            offset = cursor.get("next_offset", cursor.get("offset", 0)) or 0
+            if max(0, _read_integer(offset)) + 1 != start:
+                return None
+        byte = _read_integer(cursor.get("next_byte") or 0)
+        if byte and byte != sum(len(line.encode("utf-8")) + 1 for line in source_lines[:start - 1]):
+            # A supplied seek position can point at identical text elsewhere
+            # in this file. The native reader trusts its separate row counter.
+            return None
+    elif (skip or limit is not None) and start != skip + 1:
+        return None
+
+    page = [line.removesuffix("\r") for line in source_lines[start - 1:end]]
+    # _read_page_bytes strips trailing newlines before _cat_n numbers the
+    # visible rows. The footer still counts those unrendered empty rows.
+    while page and not page[-1]:
+        page.pop()
+    if not any(line.strip() for line in page):
+        return None
+    # _cat_n labels display fragments; one physical row can produce several.
+    fragments = "\n".join(page).splitlines()
+    expected = "\n".join(f"{i:>6}\t{line}" for i, line in enumerate(fragments, 1))
+    return (start, start + len(page) - 1) if body == expected else None
+
+
+_DISPLAY_BREAK = re.compile(r"[\v\f\x1c-\x1e\x85\u2028\u2029]|\r(?!\n)")
+
+
+def _lf_lines(text: str) -> list[str]:
+    return [line.removesuffix("\r") for line in text.removesuffix("\n").split("\n")] if text else []
+
+
+def _native_fragment_range(lines: list[str], numbered: list[tuple[int, str]],
+                           skip: int, count: int | None, final_lf: bool) -> tuple[int, int] | None:
+    """Map a complete legacy display window to the LF rows it covers in full."""
+    if any(n != expected for expected, (n, _) in enumerate(numbered, 1)):
+        return None
+    # Q7's filesystem slices splitlines(keepends=True) before _cat_n renders
+    # each fragment. The current local reader can also return an unmarked
+    # whole file, starting at zero, with several labels per physical row.
+    stop = skip + len(numbered)
+    if skip and count is not None and len(numbered) > count:
+        return None
+    fragments: list[str] = []
+    complete: list[int] = []
+    for row, line in enumerate(lines, 1):
+        start = len(fragments)
+        # Appending LF preserves interior/trailing empty display fragments.
+        text = line + "\n" if row < len(lines) or final_lf else line
+        fragments.extend(text.splitlines())
+        # A final empty fragment can represent only the physical LF after
+        # a display delimiter. Both SDKs may omit it at a read boundary.
+        content_end = len(fragments) - (text.endswith("\n") and fragments[-1] == "")
+        if skip <= start and content_end <= stop and line.strip():
+            complete.append(row)
+        if len(fragments) >= stop:
+            break
+    if fragments[skip:stop] != [text for _, text in numbered] or not complete:
+        return None
+    if not skip and count is not None and complete[-1] > count:
+        return None
+    return complete[0], complete[-1]
+
+
+def _observed_lines(source: str, result: str, *, offset: object = 0,
+                    limit: object = None, cursor: object = None) -> tuple[int, int] | None:
+    """Bind exact returned text to absolute positions inside the paired read's window."""
+    # JSON tool arguments may contain decimal strings. Reject malformed windows
+    # rather than falling back to a different part of the frozen file.
+    try:
+        skip = max(0, _read_integer(offset))
+        count = None if limit is None else _read_integer(limit)
+        if _PAGE_START.search(result):
+            return _receipt_range(source, result, skip, count, cursor)
+        if cursor is not None:
+            return None  # The actual starting line of a continuation needs its receipt.
+        source_lines = _lf_lines(source)
+        end = len(source_lines) if count is None else min(len(source_lines), skip + count)
+    except ValueError:
+        return None
+    if count is not None and count <= 0:
+        return None
     # Native read_file emits a padded line number, one tab, then the exact
     # source line. Whitespace after that tab belongs to the source: removing
     # even one character rejects every indented Python line. Other renderers
     # use a colon/pipe/arrow with one optional presentation space.
     numbered_lines: list[tuple[int, str]] = []
-    for line in result.splitlines():
+    native_tabs = True
+    for line in _lf_lines(result):
         numbered = re.match(r"^[ \t]*(\d+) *\t(.*)$", line)
         if numbered is None:
             numbered = re.match(r"^[ \t]*(\d+)[ \t]*[:|→] ?(.*)$", line)
+            if numbered is not None:
+                native_tabs = False
         if numbered is not None:
             numbered_lines.append((int(numbered.group(1)), numbered.group(2)))
+    if numbered_lines and native_tabs and _DISPLAY_BREAK.search(source) and numbered_lines[0][0] == 1:
+        return _native_fragment_range(source_lines, numbered_lines, skip, count, source.endswith("\n"))
+    if skip >= end:
+        return None
     if numbered_lines:
-        # A native line number is evidence for that exact source position, not
-        # every identical source line. Never fall back to stripped/plain text
-        # when numbered output exists, even when its claimed positions fail.
-        matched = sorted({number for number, content in numbered_lines
-                          if 1 <= number <= len(source_lines)
-                          and content.strip() and source_lines[number - 1] == content})
+        # Native _cat_n starts at 1 for each page. Identify its complete
+        # numbering before checking content: repeated source text cannot choose
+        # the origin. Other renderers and full-file reads use absolute numbers.
+        local_page = skip > 0 and native_tabs and numbered_lines[0][0] == 1
+        if local_page and (
+            len(numbered_lines) > end - skip
+            or any(n != expected for expected, (n, _) in enumerate(numbered_lines, 1))
+        ):
+            return None
+        check_overlap = skip > 0 and native_tabs and not local_page
+        if check_overlap:
+            absolute_fits = all(skip < n <= end and source_lines[n - 1] == text for n, text in numbered_lines)
+            shifted_fits = all(0 < n <= end - skip and source_lines[skip + n - 1] == text
+                               for n, text in numbered_lines)
+            # A complete, uniquely absolute excerpt can contain repeated rows.
+            check_overlap = not absolute_fits or shifted_fits
+        matched_numbers = set()
+        for number, content in numbered_lines:
+            index = skip + number if local_page else number
+            if not (skip < index <= end and content.strip() and source_lines[index - 1] == content):
+                continue
+            if (check_overlap and skip + number <= end
+                    and source_lines[skip + number - 1] == content):
+                # A partial tab-numbered excerpt with repeated text could also
+                # refer to a different row inside this page.
+                continue
+            matched_numbers.add(index)
+        matched = sorted(matched_numbers)
+    elif skip:
+        # A plain excerpt has no line labels. Require one exact alignment in
+        # the requested window, including indentation, blank and repeated lines.
+        excerpt = _lf_lines(result)
+        if not excerpt:
+            return None
+        starts = (i for i in range(skip, end - len(excerpt) + 1)
+                  if source_lines[i] == excerpt[0] and source_lines[i:i + len(excerpt)] == excerpt)
+        start = next(starts, None)
+        if start is None or next(starts, None) is not None:
+            return None
+        matched = [start + i for i, line in enumerate(excerpt, 1) if line.strip()]
     else:
-        output_lines = set(result.splitlines())
-        matched = [index for index, line in enumerate(source_lines, 1)
+        output_lines = set(_lf_lines(result))
+        matched = [index for index, line in enumerate(source_lines[:end], 1)
                    if line.strip() and line in output_lines]
     if not matched:
         return None
@@ -214,11 +372,28 @@ def investigation_tool_calls(events: list[dict], snapshot: WorkspaceSnapshot) ->
             else:
                 path = target[0]
                 try:
-                    source = target[1].read_text(encoding="utf-8")
+                    source = target[1].read_bytes().decode("utf-8")
                     observed = _read_text(raw)
-                    if isinstance(event.get("rendered_result"), str):
-                        observed += "\n" + event["rendered_result"]
-                    line_range = _observed_lines(source, observed)
+                    rendered = event.get("rendered_result")
+                    cursor = args.get("cursor")
+                    if cursor is None:
+                        cursor = args.get("page_token")
+                    if cursor is None and args.get("source_id"):
+                        cursor = {"source_id": args["source_id"]}
+                    window = {"offset": args.get("offset", 0), "limit": args.get("limit"), "cursor": cursor}
+                    views = [observed]
+                    if isinstance(rendered, str) and rendered and rendered != observed:
+                        views.append(rendered)
+                    marked = [view for view in views if _PAGE_START.search(view)]
+                    if marked or args.get("offset"):
+                        # A footer is authoritative, including when it fails
+                        # verification. Never undo it with unlabelled raw text.
+                        ranges = {_observed_lines(source, text, **window) for text in marked or views}
+                        if not marked:
+                            ranges.discard(None)
+                        line_range = ranges.pop() if len(ranges) == 1 else None
+                    else:
+                        line_range = _observed_lines(source, "\n".join(views), **window)
                 except (OSError, UnicodeError):
                     success = False
                 else:
@@ -256,7 +431,7 @@ def discovered_source_paths(events: list[dict], snapshot: WorkspaceSnapshot) -> 
         if call_id[:300] not in accepted:
             continue
         result = _read_text(event.get("result")) + "\n" + _read_text(event.get("rendered_result"))
-        for line in result.splitlines():
+        for line in _lf_lines(result):
             candidate = line.strip().removeprefix("File: ").split(":", 1)[0].strip()
             if not candidate or len(candidate) >= 4096 or any(char in candidate for char in "{}[]\t"):
                 continue

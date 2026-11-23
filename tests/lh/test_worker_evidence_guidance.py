@@ -17,6 +17,7 @@ from jiuwenswarm.lh.worker_evidence import WORKER_EVIDENCE_GUIDANCE_VERSION, wor
 
 
 @pytest.mark.parametrize("control_profile", ["bounded", "legacy"])
+@pytest.mark.asyncio
 async def test_advice_reaches_three_worker_stages_without_changing_other_role_inputs(
     tmp_path, git_repo_factory, control_profile
 ):
@@ -43,10 +44,11 @@ async def test_advice_reaches_three_worker_stages_without_changing_other_role_in
 
 
 @pytest.mark.parametrize("material", [True, False])
+@pytest.mark.asyncio
 async def test_original_material_question_is_not_cleared_by_later_handoff_or_complete_reviewer(
     tmp_path, git_repo_factory, material
 ):
-    args = trial(tmp_path, git_repo_factory)
+    args = replace(trial(tmp_path, git_repo_factory), allow_user_interaction=True)
     calls = []
     assumption = {
         "requirement_ids": ["plan-fulfilled"],
@@ -97,6 +99,7 @@ async def test_original_material_question_is_not_cleared_by_later_handoff_or_com
         assert report["internal_accepted"]
 
 
+@pytest.mark.asyncio
 async def test_guidance_version_is_bound_for_resume(tmp_path, git_repo_factory, monkeypatch):
     args = trial(tmp_path, git_repo_factory)
     calls = []

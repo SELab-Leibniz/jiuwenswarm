@@ -47,7 +47,7 @@ def emit(record):
 class WorkerTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
+        self.root = Path(self.temp.name).resolve()
         self.workspace = self.root / "workspace"
         self.workspace.mkdir()
         self.template = self.root / "config.yaml"
@@ -60,7 +60,16 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         executable = self.root / "fake-native"
         executable.write_text(f"#!{sys.executable}\n" + textwrap.dedent(_FAKE_HEADER) + textwrap.dedent(body))
         executable.chmod(0o755)
-        return JiuwenWorker(executable, self.template, default_timeout_seconds=3)
+        worker = JiuwenWorker(executable, self.template, default_timeout_seconds=3)
+        native_startup = worker._native_startup
+
+        def fake_startup(*, state, read_only, environment=None):
+            # These protocol controls intentionally execute the fake binary.
+            # Real companion bootstrap isolation is covered by test_native_stage_writes.
+            return native_startup(state=state, read_only=False, environment=environment)
+
+        worker._native_startup = fake_startup
+        return worker
 
     async def run_worker(self, worker: JiuwenWorker, **kwargs):
         return await worker.run(stage="test", prompt="inspect task", workspace=self.workspace,
@@ -574,7 +583,8 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(WorkerProtocolError) as context:
             await self.run_worker(worker)
         self.assertEqual(context.exception.result.status, "failed")
-        self.assertIn('"sequence": 1', (self.root / "stage/stdout.jsonl").read_text())
+        self.assertIn("[record rejected (ValueError); no content retained]",
+                      (self.root / "stage/stdout.jsonl").read_text())
 
     async def test_junk_stdout_and_duplicate_json_fields_are_rejected(self):
         for body in ("print('debug', flush=True)\nemit(result())",
@@ -590,11 +600,11 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.exception.result.exit_code, 4)
         self.assertEqual(self.metadata()["actual_exit_code"], 4)
 
-    async def test_process_signal_is_interruption_without_budget_evidence(self):
+    async def test_process_signal_without_cancellation_receipt_is_protocol_failure(self):
         worker = self.worker("os.kill(os.getpid(), signal.SIGTERM)")
-        with self.assertRaises(WorkerExecutionError) as context:
+        with self.assertRaises(WorkerProtocolError) as context:
             await self.run_worker(worker)
-        self.assertEqual(context.exception.result.status, "cancelled")
+        self.assertEqual(context.exception.result.status, "failed")
         self.assertEqual(self.metadata()["signal"], 15)
         self.assertFalse(self.metadata()["budget_stop_observed"])
 
@@ -808,7 +818,7 @@ class FinalResponseBoundaryTests(unittest.TestCase):
         for kind, payload in (("chat.delta", {"content": "but not finished"}),
                               ("chat.tool_call", {}), ("chat.output_phase", {})):
             selected, source = self.select([self.final('{"ok":true}'),
-                                            {"type": "event", "event_type": kind, "payload": payload}])
+                                            {"type": "event", "sequence": 4, "event_type": kind, "payload": payload}])
             self.assertTrue(selected.startswith("earlier commentary"))
             self.assertEqual(source["source"], "native_terminal_aggregate")
 

@@ -116,6 +116,7 @@ def test_reusing_plugin_does_not_change_another_invocation_limit(tmp_path):
         second._require_same(state, new, {"fingerprint": "fixture-v1"}, "Code")
 
 
+@pytest.mark.asyncio
 async def test_snapshot_failure_happens_before_any_worker_call(tmp_path):
     import json
     from dataclasses import replace

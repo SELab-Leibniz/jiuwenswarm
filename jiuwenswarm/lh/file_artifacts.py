@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 import shutil
 import stat
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,9 +15,11 @@ from uuid import uuid4
 from pact_core.artifacts import read_json, write_json_atomic
 from pact_core.runtime import RuntimeContractError
 from pact_core.runtime.export import verify_export
+from pact_core.runtime.store import build_campaign_paths
 from pact_core.schemas import TurnRequest
 
-from .evidence import contained, sha256_bytes
+from .checkpoint_guard import sha256_file
+from .evidence import contained, contained_in_roots, sha256_bytes
 from .snapshot_resources import SnapshotResources
 
 
@@ -25,6 +29,47 @@ class ClarificationBudgetExhausted(RuntimeError):
 
 class ClarificationStopped(ClarificationBudgetExhausted):
     pass
+
+
+class ExternalInvocationStore:
+    """One atomic invocation record and an exclusive owner for a running driver."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path.absolute()
+        self.lock_path = self.path.with_name(self.path.name + ".lock")
+
+    @contextmanager
+    def owner(self):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(self.lock_path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as exc:
+                raise RuntimeContractError("external invocation already has an owner") from exc
+            yield self
+        finally:
+            os.close(fd)
+
+    def read(self) -> dict[str, Any] | None:
+        if self.path.is_symlink():
+            raise RuntimeContractError("external state path must not be a symlink")
+        return read_json(self.path) if self.path.exists() else None
+
+    def write(self, value: dict[str, Any]) -> None:
+        if self.path.is_symlink():
+            raise RuntimeContractError("external state path must not be a symlink")
+        write_json_atomic(self.path, value)
+
+    @staticmethod
+    def work_artifact_present(workspace: Path, work_id: str) -> bool:
+        """Probe durable Core storage without interpreting a missing Work as corrupt.
+
+        A partial campaign directory and a symlink still require a real Core
+        read, so corruption cannot be silently reclassified as no Work.
+        """
+        path = build_campaign_paths(workspace, work_id).campaign_dir
+        return path.exists() or path.is_symlink()
 
 
 @dataclass(frozen=True)
@@ -154,7 +199,14 @@ class FileArtifacts:
         return Admission(budget, **kwargs)
 
     def stage_record(
-        self, *, output_root: Path, turn_root: Path, stage: str, receipt: Any, metadata: dict[str, object]
+        self,
+        *,
+        output_root: Path,
+        turn_root: Path,
+        stage: str,
+        receipt: Any,
+        metadata: dict[str, object],
+        archive_roots: tuple[Path, ...] = (),
     ) -> tuple[dict[str, object], Snapshot]:
         payload = verify_export(receipt)
         directory = turn_root / "snapshots" / f"{stage}-{uuid4().hex}"
@@ -180,7 +232,7 @@ class FileArtifacts:
                 total_bytes += target.stat().st_size
                 self._snapshot_resources.check_total(total_bytes)
                 target.chmod(stat.S_IMODE(source.stat().st_mode))
-                files[relative] = sha256_bytes(target.read_bytes())
+                files[relative] = sha256_file(target)
                 file_modes[relative] = stat.S_IMODE(target.stat().st_mode)
         manifest = directory / "manifest.json"
         write_json_atomic(
@@ -196,12 +248,16 @@ class FileArtifacts:
         record = self.evidence_checkpoint(
             output_root=output_root, turn_root=turn_root, stage=stage, snapshot=snapshot, metadata=metadata
         )
+        export_location = contained_in_roots(
+            receipt.artifact, output_root=output_root, archive_roots=archive_roots
+        )
         record.update(
             candidate_checkpoint=receipt.candidate.checkpoint,
             candidate_tree=receipt.candidate.tree,
-            export=contained(output_root, receipt.artifact),
+            export=export_location["path"],
+            export_root=export_location["root"],
             export_sha256=receipt.artifact_sha256,
-            patch_sha256=sha256_bytes(receipt.patch.read_bytes()),
+            patch_sha256=sha256_file(receipt.patch),
             patch_empty=receipt.patch.stat().st_size == 0,
             snapshot=contained(output_root, directory),
             snapshot_resources=self._snapshot_resources.record(),
@@ -222,7 +278,7 @@ class FileArtifacts:
             if path.is_file() and not path.is_symlink():
                 total_bytes += path.stat().st_size
                 self._snapshot_resources.check_total(total_bytes)
-                actual[path.relative_to(view).as_posix()] = sha256_bytes(path.read_bytes())
+                actual[path.relative_to(view).as_posix()] = sha256_file(path)
         if actual != expected or any(p.is_symlink() for p in view.rglob("*")):
             raise RuntimeContractError("frozen snapshot content changed")
         if payload.get("schema") == "long-horizon/snapshot/v2":
@@ -268,9 +324,10 @@ class FileArtifacts:
             if path.is_symlink() or not path.is_file():
                 raise RuntimeContractError("unsafe or missing clarification bundle")
             contained(turn_root, path)
-        text = document.read_text(encoding="utf-8")
+        raw = document.read_bytes()
+        text = raw.decode("utf-8")
         payload = read_json(manifest)
-        digest = sha256_bytes(document.read_bytes())
+        digest = sha256_bytes(raw)
         if (
             payload.get("schema") != "long-horizon/clarification/v1"
             or payload.get("clarified_requirement_sha256") != digest

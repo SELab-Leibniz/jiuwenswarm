@@ -152,6 +152,7 @@ def test_conditional_class_function_name_collision_keeps_base_dispatch_unresolve
 @pytest.mark.parametrize(
     "invalid", ["not json", '{"locations":[{"file_path":"app/other.py","symbol":"commit_record"}]}']
 )
+@pytest.mark.asyncio
 async def test_failed_agent_search_is_explicit_graph_fallback_not_fake_success(tmp_path, invalid):
     root = tmp_path / "view"
     graph_files(root)
@@ -169,6 +170,7 @@ async def test_failed_agent_search_is_explicit_graph_fallback_not_fake_success(t
     assert any(row["file_path"] == "tests/test_queue.py" for row in result["locations"])
 
 
+@pytest.mark.asyncio
 async def test_cancelled_graph_search_keeps_partial_trace_and_does_not_claim_completion(tmp_path):
     root = tmp_path / "view"
     graph_files(root)
@@ -192,6 +194,7 @@ async def test_cancelled_graph_search_keeps_partial_trace_and_does_not_claim_com
     assert not list((tmp_path / "output").rglob("code-localization.json"))
 
 
+@pytest.mark.asyncio
 async def test_unexposed_location_is_requeried_before_selection_instead_of_whole_search_fallback(tmp_path):
     root = tmp_path / "view"
     graph_files(root)
@@ -234,6 +237,7 @@ async def test_unexposed_location_is_requeried_before_selection_instead_of_whole
     assert '"event": "deterministic-graph-fallback"' not in trace
 
 
+@pytest.mark.asyncio
 async def test_actual_shared_suite_graph_reaches_plan_p1_and_seals_resume_evidence(tmp_path, git_repo_factory):
     args, calls = trial(tmp_path, git_repo_factory), []
     graph_files(args.workdir)

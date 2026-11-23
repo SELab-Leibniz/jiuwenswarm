@@ -67,6 +67,7 @@ def test_promotion_still_rejects_source_drift(tmp_path):
     assert (source / "source.txt").read_text() == "Unrelated source change\n"
 
 
+@pytest.mark.asyncio
 async def test_full_suite_acceptance_and_export_keep_crlf_bytes(tmp_path, git_repo_factory):
     from test_suite_flow import SuiteAgent, trial
 
