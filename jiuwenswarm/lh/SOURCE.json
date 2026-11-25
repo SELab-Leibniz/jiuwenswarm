@@ -17,6 +17,13 @@
     "Keep MemGraph naming and disabled default, native transport retry rail and public-test write guard.",
     "Tests use explicit asyncio markers, embedded package/fixture paths and fake-native startup for protocol controls."
   ],
+  "companion_wheels": {
+    "pathspec": {
+      "bundled_wheel": "jiuwenswarm/lh/wheels/pathspec-1.1.1-py3-none-any.whl",
+      "sha256": "a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189",
+      "source": "https://pypi.org/project/pathspec/1.1.1/"
+    }
+  },
   "files": {
     "jiuwenswarm/lh/__init__.py": {
       "sha256": "72ebb03ed308a768425b65b4841bf09e879cb3b799beccba7800c52c19e18395",

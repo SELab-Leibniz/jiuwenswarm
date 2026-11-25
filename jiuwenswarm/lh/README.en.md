@@ -75,3 +75,11 @@ uv pip install /path/to/pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecy
 
 The wheel is supplied separately and is imported only on the LH path. The older
 `turns1` wheel lacks the check-lifecycle interfaces required by this suite.
+
+## Install pathspec offline
+
+The LH snapshot filter uses `pathspec==1.1.1`. The checkout, WorkSwarm wheel and source distribution include the original PyPI wheel with its MPL 2.0 license. Run the following command from the checkout to verify its SHA-256 digest and install it.
+
+```bash
+python -m pip install --no-index --find-links jiuwenswarm/lh/wheels --require-hashes -r jiuwenswarm/long_horizon/requirements.lock
+```

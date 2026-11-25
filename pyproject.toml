@@ -166,6 +166,8 @@ namespaces = false
 
 [tool.setuptools.package-data]
 "*" = ["LICENSE"]
+"jiuwenswarm.lh" = ["SOURCE.json", "wheels/pathspec-*.whl"]
+"jiuwenswarm.long_horizon" = ["requirements.lock"]
 jiuwenswarm = [
     "channels/process_cli/protocol/schema.json",
     "channels/web/frontend/dist/**/*",

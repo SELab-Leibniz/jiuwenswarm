@@ -90,3 +90,11 @@ SHA256: 190ea348e1897c76159a65dd6e604cfb1e63a9fca5dd0776c092420b5675611f
 安装前按 SHA256 核对该 wheel，再运行 `uv pip install /path/to/the/wheel.whl`。
 它不提交到本仓库，也不加入默认安装；只有使用 `--lh` 时才导入。
 旧版 `turns1` wheel 缺少本次 suite 使用的检查生命周期接口。
+
+## 离线安装 pathspec
+
+LH 的快照过滤器使用 `pathspec==1.1.1`。仓库、WorkSwarm wheel 和源码发行包均内置 PyPI 的原始 wheel 及其 MPL 2.0 许可证。从本分支根目录执行以下命令即可校验 SHA-256 并安装。
+
+```bash
+python -m pip install --no-index --find-links jiuwenswarm/lh/wheels --require-hashes -r jiuwenswarm/long_horizon/requirements.lock
+```
