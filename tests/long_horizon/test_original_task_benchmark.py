@@ -7,7 +7,7 @@ import subprocess
 from unittest.mock import patch
 
 import pytest
-pytest.importorskip('pact_core.benchmark')
+
 from jiuwenswarm.long_horizon.pact.long_horizon_benchmark import BenchmarkArguments, LongHorizonBenchmark
 from jiuwenswarm.long_horizon.clarification.types import ClarificationResult, ClarificationSelection
 
@@ -64,7 +64,7 @@ def test_real_core_original_task_p0_clarification_and_sealed_latest_candidate(tm
     assert len([c for c in worker.calls if c[0]=='benchmark-worker'])==2
     assert all(ro for stage,workdir,ro in worker.calls if stage=='benchmark-reviewer')
     assert all(workdir != repo for stage,workdir,ro in worker.calls)
-    from pact_core.runtime.export import verify_export
+    from jiuwenswarm.pact_core.runtime.export import verify_export
     assert Path(data['export']['patch']).read_text()
 
 

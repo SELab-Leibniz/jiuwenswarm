@@ -9,7 +9,7 @@ import json
 import subprocess
 
 import pytest
-from pact_core.checkpoint import CheckpointStore
+from jiuwenswarm.pact_core.checkpoint import CheckpointStore
 
 
 @pytest.mark.parametrize(
@@ -39,7 +39,7 @@ def test_promotion_preserves_candidate_line_endings(tmp_path, content):
     assert current.head_commit == initialization.head_commit
     assert current.index_tree == initialization.index_tree
     assert current.branch == initialization.branch
-    from pact_core.goal_tracker import sha256_text
+    from jiuwenswarm.pact_core.goal_tracker import sha256_text
 
     assert (
         sha256_text(store._diff(initialization.baseline_commit, checkpoint.commit))
@@ -100,7 +100,7 @@ async def test_full_suite_acceptance_and_export_keep_crlf_bytes(tmp_path, git_re
 
 
 def test_json_artifacts_keep_lossless_patch_strings_valid_utf8(tmp_path):
-    from pact_core.artifacts import write_json_atomic
+    from jiuwenswarm.pact_core.artifacts import write_json_atomic
 
     patch = b"legacy,\x93quote\x94\r\n".decode("utf-8", errors="surrogateescape")
     path = tmp_path / "artifact.json"

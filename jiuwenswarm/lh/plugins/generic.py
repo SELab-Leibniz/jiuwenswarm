@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
-from pact_core.artifacts import write_json_atomic
-from pact_core.runtime import RuntimeContractError
-from pact_core.schemas import TurnRequest
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.schemas import TurnRequest
 
 from ..file_artifacts import Clarification, ClarificationBudgetExhausted, ClarificationStopped, FileArtifacts
 from ..planning_checkpoint import PlanningCheckpoint, PlanningCheckpointError

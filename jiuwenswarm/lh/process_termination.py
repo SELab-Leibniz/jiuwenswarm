@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 def _active_check_processes() -> tuple[Mapping[str, object], ...]:
     try:
-        from pact_core.verification import active_check_processes
+        from jiuwenswarm.pact_core.verification import active_check_processes
     except (ImportError, AttributeError):
         return ()
     try:
@@ -69,7 +69,7 @@ def _signal_active_group(pgid: int, number: int) -> bool:
     that has been cleared can never authorize another signal from here.
     """
     try:
-        from pact_core.verification import signal_active_check_group
+        from jiuwenswarm.pact_core.verification import signal_active_check_group
     except (ImportError, AttributeError):
         _signal_group(pgid, number)
         return True

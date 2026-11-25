@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
 
 
 def _bytes(value: Any) -> bytes:

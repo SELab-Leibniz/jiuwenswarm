@@ -7,11 +7,12 @@ import shlex
 import sys
 import threading
 from dataclasses import replace
+from importlib.util import resolve_name
 from pathlib import Path
 
 import pytest
-from pact_core.review_decision import parse_review_decision
-from pact_core.schemas import AdapterProbe, TurnResult
+from jiuwenswarm.pact_core.review_decision import parse_review_decision
+from jiuwenswarm.pact_core.schemas import AdapterProbe, TurnResult
 
 from jiuwenswarm.lh import BenchmarkArguments, Capabilities, ExecutionBinding, LongHorizonBenchmark
 from jiuwenswarm.lh.plugins.generic import GenericPlugin
@@ -143,7 +144,7 @@ async def test_missing_agent_capabilities_fail_before_execution(tmp_path, git_re
 
 def test_shared_core_has_no_native_agent_imports():
     root = Path(__file__).parents[2] / "jiuwenswarm/lh"
-    for path in [
+    shared = [
         root / name
         for name in (
             "controller.py",
@@ -153,20 +154,24 @@ def test_shared_core_has_no_native_agent_imports():
             "progress.py",
             "plugins/generic.py",
         )
-    ]:
+    ]
+    core = root.parent / "pact_core"
+    for path in [*shared, *core.rglob("*.py")]:
+        allowed = {"pact_core"} if core in path.parents else {"pact_core", "lh"}
+        package = ".".join(path.parent.relative_to(root.parents[1]).parts)
         for node in ast.walk(ast.parse(path.read_text())):
-            modules = (
-                [x.name for x in node.names]
-                if isinstance(node, ast.Import)
-                else [node.module or ""]
-                if isinstance(node, ast.ImportFrom)
-                else []
-            )
-            assert not any(
-                m.split(".")[0] == "chrys"
-                or (m.startswith("jiuwenswarm.") and not m.startswith("jiuwenswarm.lh."))
-                for m in modules
-            ), path
+            if isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                base = resolve_name("." * node.level + (node.module or ""), package)
+                modules = [f"{base}.{alias.name}" for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                family, _, submodule = module.partition(".")
+                assert family not in {"chrys", "pact_core"}, (path, module)
+                if family == "jiuwenswarm":
+                    assert submodule.split(".", 1)[0] in allowed, (path, module)
 
 
 @pytest.mark.asyncio

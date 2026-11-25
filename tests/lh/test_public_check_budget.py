@@ -14,9 +14,9 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
-from pact_core import verification
-from pact_core.runtime import AcceptancePolicy
-from pact_core.schemas import FinalValidationResult, VerificationCheck
+from jiuwenswarm.pact_core import verification
+from jiuwenswarm.pact_core.runtime import AcceptancePolicy
+from jiuwenswarm.pact_core.schemas import FinalValidationResult, VerificationCheck
 from test_control_regressions import GOOD, FixturePlugin, repository
 
 from jiuwenswarm.lh.control_policy import PhasePolicy
@@ -248,7 +248,7 @@ def test_final_validation_expired_does_not_spawn(tmp_path):
 
 
 def test_final_stage_passes_original_deadline_through_worktree_preparation(tmp_path):
-    from pact_core import _execution_finalization as finalization
+    from jiuwenswarm.pact_core import _execution_finalization as finalization
 
     deadline = time.time() + 10
     patch_path = tmp_path / "patch"

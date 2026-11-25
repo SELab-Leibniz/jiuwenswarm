@@ -16,11 +16,11 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from pact_core.artifacts import read_json, write_json_atomic
-from pact_core.runtime import RuntimeContractError, RuntimeStateError
-from pact_core.runtime.planning import initial_plan_payload, validate_initial_plan
-from pact_core.runtime.schemas import goal_contract_criteria, validate_goal_contract
-from pact_core.schemas import TurnRequest, TurnResult
+from jiuwenswarm.pact_core.artifacts import read_json, write_json_atomic
+from jiuwenswarm.pact_core.runtime import RuntimeContractError, RuntimeStateError
+from jiuwenswarm.pact_core.runtime.planning import initial_plan_payload, validate_initial_plan
+from jiuwenswarm.pact_core.runtime.schemas import goal_contract_criteria, validate_goal_contract
+from jiuwenswarm.pact_core.schemas import TurnRequest, TurnResult
 
 from .budget_boundary import BudgetedAdapter
 from .budget_origin import validate_cutoff

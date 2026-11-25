@@ -8,6 +8,11 @@ THE OPEN SOURCE SOFTWARE IN THIS PRODUCT IS DISTRIBUTED IN THE HOPE THAT IT WILL
 
 ## Copyright Notice and License Texts
 
+### Bundled PACT Core source
+
+The PACT Core WorkRuntime source and its runtime resources are included with permission.
+Original notices are retained. The [source manifest](jiuwenswarm/lh/SOURCE.json) records the upstream version, artifact digest and individual file hashes.
+
 ### Bundled Playwright MCP runtime
 
 The browser-free runtime archive contains the following production packages resolved by the tracked npm lockfile. It does not contain Chromium, Firefox, WebKit, or downloaded browser executables.

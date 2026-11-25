@@ -36,8 +36,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 from uuid import uuid4
 
-from pact_core.artifacts import write_json_atomic
-from pact_core.schemas import ReviewDecisionCapture, TurnRequest, TurnResult
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.schemas import ReviewDecisionCapture, TurnRequest, TurnResult
 
 from .generalization_check import reviewer_generalization_check_guidance
 from .process_kill_guard import (  # noqa: F401

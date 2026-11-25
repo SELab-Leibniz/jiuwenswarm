@@ -9,9 +9,9 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
-from pact_core.benchmark.budget import BenchBudget
-from pact_core.benchmark.types import BenchConfig
-from pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.benchmark.budget import BenchBudget
+from jiuwenswarm.pact_core.benchmark.types import BenchConfig
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
 
 
 def validate_origin(started_at: float) -> None:

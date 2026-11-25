@@ -14,9 +14,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from pact_core.benchmark.types import BenchConfig
-from pact_core.runtime import AcceptancePolicy, WorkRuntime
-from pact_core.schemas import AdapterProbe, TurnResult
+from jiuwenswarm.pact_core.benchmark.types import BenchConfig
+from jiuwenswarm.pact_core.runtime import AcceptancePolicy, WorkRuntime
+from jiuwenswarm.pact_core.schemas import AdapterProbe, TurnResult
 
 from jiuwenswarm.lh.budget_origin import create_budget
 from jiuwenswarm.lh.candidate_gate import PublicCandidateGate
@@ -371,7 +371,7 @@ class BudgetAndTransport(unittest.TestCase):
             self.assertFalse(late.exists())
 
     def test_verifier_kills_an_actually_started_command(self):
-        from pact_core.verification import run_verification
+        from jiuwenswarm.pact_core.verification import run_verification
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -542,7 +542,7 @@ class ControlProfileCompatibility(unittest.TestCase):
     def test_bounded_requires_supplied_check_and_suite(self):
         values = dict(task=Path("task"), workdir=Path("repo"), output=Path("out"), task_id="fixture", trial_id="one")
         self.assertEqual(BenchmarkArguments(**values).control_profile, "legacy")
-        from pact_core.runtime import RuntimeContractError
+        from jiuwenswarm.pact_core.runtime import RuntimeContractError
 
         for extra in ({}, {"verify_command": VERIFY, "workflow": "benchmark"}):
             with self.assertRaises(RuntimeContractError):

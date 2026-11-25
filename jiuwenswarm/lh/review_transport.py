@@ -25,7 +25,7 @@ import json
 import re
 from typing import Any
 
-from pact_core.review_decision import parse_review_decision
+from jiuwenswarm.pact_core.review_decision import parse_review_decision
 
 _COMPLETE = "complete"
 _COMPLETE_MARKER = "PACT_COMPLETE"

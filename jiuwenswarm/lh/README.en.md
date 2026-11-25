@@ -61,14 +61,14 @@ write guard are retained.
 
 ## Install from the PR
 
-Use Python 3.11–3.13 in the checkout. The `lh` extra selects the suite's PACT Core and pathspec dependencies.
+Use Python 3.11–3.13 in this checkout. Both the default `suite` and the original-task `benchmark` use the [PACT Core WorkRuntime source](../pact_core/) included in WorkSwarm. The `lh` extra installs `pathspec` for snapshot filtering.
 
 ```bash
 uv sync --frozen --extra lh
 uv run --no-sync jiuwenswarm-process --lh --help
 ```
 
-If this branch is already installed through the usual JiuwenSwarm setup, activate that environment and add the LH dependencies offline. pip reads both wheels from the bundled directory and verifies their SHA-256 digests.
+If this branch is already installed through the usual JiuwenSwarm setup, activate that environment and install `pathspec` offline. pip verifies the bundled file's SHA-256 digest.
 
 ```bash
 python -m pip install -r jiuwenswarm/lh/requirements.txt
@@ -76,7 +76,7 @@ python -m pip install -r jiuwenswarm/lh/requirements.txt
 
 ## Install from a single WorkSwarm wheel
 
-Both the wheel and the source distribution produced by `uv build` include the LH dependency wheels. To install using only the main wheel in an environment that already has the JiuwenSwarm base dependencies, run the following in the wheel's directory, substituting the filename for your build.
+The WorkSwarm wheel and source distribution produced by `uv build` include the Python modules, role profiles and dashboard assets for WorkRuntime. To install offline in an environment with the JiuwenSwarm base dependencies, run these commands in the wheel's directory. The extraction step gives pip access to the bundled `pathspec` dependency.
 
 ```bash
 python -m zipfile -e workswarm-0.2.5b1-py3-none-any.whl unpacked
@@ -85,4 +85,4 @@ python -m pip install --no-index --no-deps --force-reinstall ./workswarm-0.2.5b1
 jiuwenswarm-process --lh --help
 ```
 
-`SOURCE.json` records the controller revision and the origins and hashes of all three wheels. The historical Campaign uses a different PACT Core, bundled under `wheels/legacy/` for installation in a separate environment. [Campaign installation guide](../../docs/en/LongHorizonIntegration.md)
+To migrate from `python -m jiuwenswarm.long_horizon`, start a new Work with `jiuwenswarm-process --lh --workflow suite --task task.md --cwd /path/to/repo`. Select `--workflow benchmark` for the original-task workflow. [Core version, origin and per-file hashes](SOURCE.json)

@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 
-from pact_core.runtime.types import CandidateRef, ReviewEvidence
+from jiuwenswarm.pact_core.runtime.types import CandidateRef, ReviewEvidence
 
 from jiuwenswarm.lh.controller import LongHorizonBenchmark
 from jiuwenswarm.lh.progress import ReviewProgressGuard

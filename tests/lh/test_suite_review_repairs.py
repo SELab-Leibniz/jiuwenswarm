@@ -10,9 +10,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from pact_core.runtime import RuntimeContractError
-from pact_core.runtime.types import CandidateRef, ReviewEvidence
-from pact_core.schemas import TurnResult
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.runtime.types import CandidateRef, ReviewEvidence
+from jiuwenswarm.pact_core.schemas import TurnResult
 from test_suite_flow import PLAN, SuiteAgent, plugin, trial
 
 from jiuwenswarm.lh import Capabilities, ExecutionBinding, LongHorizonBenchmark

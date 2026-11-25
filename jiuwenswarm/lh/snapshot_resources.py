@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
 
 from .capacity import capacity_receipt
 from .evidence import contained_in_roots

@@ -10,8 +10,8 @@ import re
 import time
 from pathlib import Path
 
-from pact_core.artifacts import write_json_atomic
-from pact_core.schemas import TurnResult
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.schemas import TurnResult
 
 # Only machine diagnostics and structured receipts reach this classifier. It
 # deliberately never searches model prose, task text or a candidate tree.

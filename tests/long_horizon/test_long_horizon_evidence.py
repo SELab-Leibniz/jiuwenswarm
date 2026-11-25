@@ -10,10 +10,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-pytest.importorskip("pact_core.benchmark")
-from pact_core.runtime import WorkRuntime
-from pact_core.runtime.export import export_candidate, verify_export
-from pact_core.runtime.schemas import RuntimeContractError
+
+from jiuwenswarm.pact_core.runtime import WorkRuntime
+from jiuwenswarm.pact_core.runtime.export import export_candidate, verify_export
+from jiuwenswarm.pact_core.runtime.schemas import RuntimeContractError
 
 from jiuwenswarm.long_horizon.pact.long_horizon_evidence import stage_record
 from jiuwenswarm.long_horizon.clarification.checkpoints import verify_stage_checkpoint

@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
 
 from jiuwenswarm.lh.cli import arguments_from_namespace, build_parser
 from jiuwenswarm.lh.file_artifacts import FileArtifacts

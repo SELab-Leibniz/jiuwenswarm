@@ -1,1 +1,1 @@
-"""Fixed long-horizon workflow implemented with native Jiuwen agent stages."""
+"""Jiuwen native roles, snapshots and evidence adapters for the shared LH controller."""

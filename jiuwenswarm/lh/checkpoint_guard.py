@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
 
 EXCLUSIONS_SCHEMA = "long-horizon/checkpoint-exclusions/v1"
 CANDIDATE_TOO_LARGE_SCHEMA = "long-horizon/candidate-too-large/v1"
@@ -658,13 +658,13 @@ def _guard_checkpoint_worker(store: Any, *, round_number: int) -> Any:
 def install_bounded_digest() -> None:
     """Make Core's evidence digest paths chunked without changing their values."""
     modules = (
-        "pact_core.runtime.store",
-        "pact_core.runtime.export",
-        "pact_core.runtime.control_plane",
-        "pact_core.runtime.recovery",
-        "pact_core.runtime.bridge",
-        "pact_core._work_execution_support",
-        "pact_core._work_execution",
+        "jiuwenswarm.pact_core.runtime.store",
+        "jiuwenswarm.pact_core.runtime.export",
+        "jiuwenswarm.pact_core.runtime.control_plane",
+        "jiuwenswarm.pact_core.runtime.recovery",
+        "jiuwenswarm.pact_core.runtime.bridge",
+        "jiuwenswarm.pact_core._work_execution_support",
+        "jiuwenswarm.pact_core._work_execution",
     )
     for name in modules:
         try:
@@ -688,7 +688,7 @@ def install_checkpoint_guard() -> None:
     install_bounded_digest()
     if _PATCHED:
         return
-    from pact_core.checkpoint import CheckpointStore
+    from jiuwenswarm.pact_core.checkpoint import CheckpointStore
 
     _ORIGINAL_CHECKPOINT_WORKER = CheckpointStore.checkpoint_worker
     _ORIGINAL_WORKSPACE_TREE = CheckpointStore._workspace_tree

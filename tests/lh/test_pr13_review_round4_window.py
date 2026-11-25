@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from pact_core.benchmark.budget import BudgetWindow
+from jiuwenswarm.pact_core.benchmark.budget import BudgetWindow
 
 from jiuwenswarm.lh.controller import LongHorizonBenchmark
 
@@ -23,7 +23,7 @@ def test_driver_window_passes_the_original_absolute_deadline():
 
 
 def test_pinned_driver_window_keeps_the_admitted_deadline_without_drift():
-    from pact_core.benchmark import driver as driver_module
+    from jiuwenswarm.pact_core.benchmark import driver as driver_module
 
     from jiuwenswarm.lh.review_limits import _pinned_budget_window
 

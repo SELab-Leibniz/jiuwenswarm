@@ -15,8 +15,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pact_core.artifacts import write_json_atomic
-from pact_core.schemas import TurnRequest
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.schemas import TurnRequest
 
 POLICY = "jiuwen-native-stream-recovery/v1;max_calls_per_trial=1;fresh_session;original_deadlines"
 RECOVERY_ADAPTER = "jiuwenswarm-transport-recovery/v1"

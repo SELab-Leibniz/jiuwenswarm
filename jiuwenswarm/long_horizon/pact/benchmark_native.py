@@ -16,8 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pact_core.review_decision import parse_review_decision
-from pact_core.schemas import AdapterProbe, ReviewDecisionCapture, TurnResult
+from jiuwenswarm.pact_core.review_decision import parse_review_decision
+from jiuwenswarm.pact_core.schemas import AdapterProbe, ReviewDecisionCapture, TurnResult
 
 from jiuwenswarm.lh.review_transport import acceptance_review_text
 
@@ -247,7 +247,7 @@ class NativeBenchmarkAdapter:
 
 
 def record_work_budget(*, workspace, work_id, revision, detail, artifacts):
-    from pact_core.artifacts import write_json_atomic
+    from jiuwenswarm.pact_core.artifacts import write_json_atomic
     target = Path(workspace) / '.pact-io' / 'jiuwenswarm-budget-suspensions' / (work_id + '.json')
     write_json_atomic(target, {'schema': 'jiuwenswarm-pact/work-budget/v1', 'work_id': work_id,
         'revision': revision, 'detail': detail, 'artifacts': str(artifacts),

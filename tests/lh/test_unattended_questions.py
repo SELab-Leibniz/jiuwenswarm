@@ -8,9 +8,9 @@ import sys
 from pathlib import Path
 
 import pytest
-from pact_core.review_decision import parse_review_decision
-from pact_core.runtime import WorkRuntime
-from pact_core.schemas import AdapterProbe, TurnResult
+from jiuwenswarm.pact_core.review_decision import parse_review_decision
+from jiuwenswarm.pact_core.runtime import WorkRuntime
+from jiuwenswarm.pact_core.schemas import AdapterProbe, TurnResult
 
 from jiuwenswarm.lh import BenchmarkArguments, Capabilities, ExecutionBinding, LongHorizonBenchmark
 from jiuwenswarm.lh.plugins.generic import GenericPlugin

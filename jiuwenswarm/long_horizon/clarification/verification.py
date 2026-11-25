@@ -541,7 +541,7 @@ _READ_ONLY_TEST = re.compile(
 )
 
 
-def validate_public_workspace_dependencies(command: str, *, public_spec_shim: bool) -> None:
+def validate_public_workspace_dependencies(command: str) -> None:
     """Reject explicit requirements provable in a simple, read-only shell preamble."""
     if "_PACT_SOURCE_WORKSPACE" not in command:
         return
@@ -549,9 +549,7 @@ def validate_public_workspace_dependencies(command: str, *, public_spec_shim: bo
     wrapper = _SHELL_SCRIPT.fullmatch(lines[0].strip())
     if wrapper and lines[-1] == wrapper[2]:
         lines = lines[1:-1]
-    missing = {"CHRYS_PACT_SOURCE_WORKSPACE"}
-    if not public_spec_shim:
-        missing.add("JIUWENSWARM_PACT_SOURCE_WORKSPACE")
+    missing = {"CHRYS_PACT_SOURCE_WORKSPACE", "JIUWENSWARM_PACT_SOURCE_WORKSPACE"}
     empty_aliases: dict[str, str] = {}
     candidate_dirs = {"PWD"}
     # An ordinary test can take either branch. An attached-HEAD test on the
@@ -579,7 +577,7 @@ def validate_public_workspace_dependencies(command: str, *, public_spec_shim: bo
             branch = "test"
             continue
         condition = _BRANCH_TEST.fullmatch(line)
-        if condition and not public_spec_shim and branch is None:
+        if condition and branch is None:
             if condition["cwd"] is not None and condition["cwd"] not in candidate_dirs:
                 return
             if condition["assigned"] in missing | candidate_dirs or condition["assigned"].startswith("GIT_"):

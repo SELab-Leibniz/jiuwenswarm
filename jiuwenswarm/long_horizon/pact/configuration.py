@@ -8,8 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from pact_core.runtime import AcceptancePolicy, RuntimeContractError, WorkSnapshot
-from pact_core.runtime.configuration import DriverConfiguration
+from jiuwenswarm.pact_core.runtime import AcceptancePolicy, RuntimeContractError, WorkSnapshot
+from jiuwenswarm.pact_core.runtime.configuration import DriverConfiguration
 
 Workflow = Literal["default", "benchmark"]
 

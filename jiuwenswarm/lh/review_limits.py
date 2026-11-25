@@ -8,15 +8,15 @@ import threading
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from pact_core.benchmark import review_progress
-from pact_core.benchmark.budget import BenchBudget, BudgetWindow
-from pact_core.benchmark.driver import (
+from jiuwenswarm.pact_core.benchmark import review_progress
+from jiuwenswarm.pact_core.benchmark.budget import BenchBudget, BudgetWindow
+from jiuwenswarm.pact_core.benchmark.driver import (
     BenchDriver,
     _acceptance_input,
     _progress,
     _public_passed,
 )
-from pact_core.runtime.store import data_digest
+from jiuwenswarm.pact_core.runtime.store import data_digest
 
 from .method_routing import method_diagnosis, only_method_failures
 from .review_admissions import ReviewAdmissions
@@ -45,7 +45,7 @@ def _pinned_budget_window(window: BudgetWindow) -> Iterator[None]:
     exact absolute deadline the controller already admitted; the thread-local
     window leaves unrelated callers unchanged.
     """
-    from pact_core.benchmark import driver as driver_module
+    from jiuwenswarm.pact_core.benchmark import driver as driver_module
 
     previous = getattr(_PINNED_WINDOW, "window", None)
     global _PATCHED_BUDGETS

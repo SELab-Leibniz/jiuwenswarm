@@ -7,8 +7,72 @@
     "version": "0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1",
     "wheel": "vendor/pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl",
     "sha256": "190ea348e1897c76159a65dd6e604cfb1e63a9fca5dd0776c092420b5675611f",
-    "installation": "bundled local wheel selected by the lh extra or requirements.txt",
-    "bundled_wheel": "jiuwenswarm/lh/wheels/pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl"
+    "source_directory": "jiuwenswarm/pact_core",
+    "source_files": {
+      "__init__.py": "01f040d0babb1313ef5cc94eed54fc3f2c900ec470e09682ee8bbe6b32d69d29",
+      "__main__.py": "13a1a5b340cdcfc1902b62be90e508c7c71886000d5bf087e7854aadf09fb35e",
+      "_campaign_cli.py": "0e5a87a5041921cc714689931139fcc986b9e64ac3cda1efca585eac03c71fe1",
+      "_execution_artifacts.py": "ea029646b13fe6dfafdb0ecb74648e81e9df1e551df0d2e0e16f4eff6feda022",
+      "_execution_finalization.py": "ba0575d3d404e069206f5ad668de247e100f7ce0e96e3eb06c853debabe04f06",
+      "_execution_operations.py": "aab6a234d921366e13ff18405944765519b4a0e28407748e5294023b35b6aa4c",
+      "_execution_round.py": "25d45da7ea2c5479e1ad62ef5d2b61cfb5e45b548c8eb1a2a5bcb674959a46a1",
+      "_role_output.py": "4521d3c4c2d4c5751ae715703ec86de8cebf9765c78e76f9617a0ac5f5ccd687",
+      "_runtime_serialization.py": "72db91e5685d7d5f723e87b212aa868e87d5de67399470e855c3f311320b6f8d",
+      "_work_execution.py": "a1e4b0063fc7dea0d7107b4a2f81839821ec441f4b19bba66669e8c31452effd",
+      "_work_execution_support.py": "b77c33d00298b6294c28f9549b02e9bfb1d93b57e9cedd68b6fb83bf194349d7",
+      "adapters/__init__.py": "e7d884f2b1794bb85cf6251744195de840d592df720fcb085f08fed96fb97d9d",
+      "adapters/_opencode_environment.py": "1f6ef8364f970951dbe9e5ec9129b0d28712e17142a53e09e807be42833bc2c4",
+      "adapters/_opencode_events.py": "adf8aa2d992630f0c87a036836adb101ef921402497f58c473ecef13312f72fe",
+      "adapters/_opencode_process.py": "1d8544f6363160ce3019b3e3ddfae58d7da6c86607938b8a940886d33806efa7",
+      "adapters/_opencode_result.py": "79c21e6b9ceb0c509cec4a949068fb26ce1466fbd4bf6453a32773db5c2c394e",
+      "adapters/base.py": "6109ab846c7e9a4fdcd003b47350ab34c8dcc203c289a9b361d02668c47743b7",
+      "adapters/chrys.py": "b2c73595bc56ac9fdb6746192e27b589fc79e7066583c22a8b39ecd057560a34",
+      "adapters/fake.py": "7ca3d69774afb6f5d4b1ae35bafd4eb94786e802f4ee634b6bf673268ae885ee",
+      "adapters/opencode.py": "506b37ee2762dadbee4f467244be1be40a2f7c8459d6b6ccfa290eb71646efc6",
+      "adapters/profiles/PactCoreReviewer.yaml": "ad4bd1371a7618adc839161d6cac373b28027041a2c5247de0b5ac42e040395e",
+      "adapters/profiles/PactCoreWorker.yaml": "8ade7db0fe085acbb516ca149bbf0e8cae4db412c6ed4b86b8719859928fbefe",
+      "artifacts.py": "67077e23a8a1c1d5a3fe7404c6785a8c8ee6e20a764115e62115df75ce1503c0",
+      "benchmark/__init__.py": "b36824da9955f4c4ec5b847480b84e031286fb9c03d7e4e972400f1e7f3cd4af",
+      "benchmark/bridge.py": "7371bc4b4d9a7dd668e48d9fbf095652250786f1f1957f21c9037e40546447f4",
+      "benchmark/budget.py": "b635b2c41b14cd2ec5760905aef43a55ed84e3cbdcf9b5dc972456795513fd76",
+      "benchmark/cli.py": "ad7e87ce8e0b28f90823a0b33c9ed8fe153a70b53ad170ac7c00f17c3df74b81",
+      "benchmark/driver.py": "6c1abe863182573bffc2ebed64c95ce19225593023b055cf632c04b79af99c51",
+      "benchmark/failures.py": "a2bbb4c64e60275dafa3839b28ff2e18c891aab6e2a406d958314c9454a8861e",
+      "benchmark/review_progress.py": "922be5e1b239e9f378d149a986b5c4969e04283ae1b18078f56904d73f95c460",
+      "benchmark/types.py": "e0553de276cd19f8af20a4c73dd8dd92ee15002bd747737e08a8be52f76368d9",
+      "checkpoint.py": "ebeddd7c6f3be4d375bb7a46de961022edc5f0ed2fd9fee269c18846e09d8283",
+      "cli.py": "174dbedba78c1dfc4cbcdd7f48387e4530097c89565b683b2c0fe1976f684bf5",
+      "config.py": "bf1acaf6d483680c65e9dd7df47c3a1ad9a733cd9e94a9bb8a5fbbe602eae257",
+      "controller.py": "3fae4741c1403e1507c218174cffb2467ea7b44746ec9531363dbfc32e8ef060",
+      "gate.py": "cd3707212c6ce92c16dfd8a6d9bf8cd9d8288db3f0087ffd041e87449b073b66",
+      "goal_tracker.py": "94b512617439f0e412544ebeb326556c1fcbb3db54f713419761c2fb67ef97d6",
+      "kernel.py": "c4809d80a64e4153203ca84093bfe92b84e8435aebc3b60470d39d6f69857ef9",
+      "prompts.py": "dd2af84c16a64123a543db576b72aa1d2c9349fab2577f222fe473331a7bf7ab",
+      "review_decision.py": "ed02017b383157ff80b37cc39d0d12ed211b9c0edbab2a375ee82d035e529dc5",
+      "runtime/__init__.py": "8ea4f9e8f8ce3e44d561af436b12b06950b47566715e3bceae0269ac2f308609",
+      "runtime/boundary.py": "2255d9a7273188da3e42770ab502f6fdb9623b8f1229701fd1d8a42fe3c55f5c",
+      "runtime/check_runner.py": "078b75539328fb9018b6334f3d6e522011eb66297436b383b59a27d7f6fb776a",
+      "runtime/checks.py": "e8c1b78a116f87a4cc89323ef185f68fd066311ae77059ce8234d6d42157d7c9",
+      "runtime/configuration.py": "b3a6c7d4f8f336225f368e23cfeaf8f152bb9bc2616cdef603f516a9150a4e55",
+      "runtime/control_plane.py": "0008c7cbfdd541d6c81688b767757039254ca54a7b339fc093c043fdeae95e68",
+      "runtime/dashboard.py": "4cbf59db71d92c9a27db9b07bba8900d53163ef20db96811f9107c50839d8606",
+      "runtime/dashboard_assets/app.js": "a3dc2d4de42d75b2489b406a07aa553e578a8a7feb7c5290b2fe5afc5afe0ee3",
+      "runtime/dashboard_assets/index.html": "7632d34ee4be937ed7c72aef3e7d051549833fbdc4317dd04f339909ed767bfb",
+      "runtime/dashboard_assets/style.css": "37fa7fb4dd5373b2880d0b6491a4e4492c7e26dd88d3a8719a8178b765bb4453",
+      "runtime/driver.py": "fd35ed78dad3bdd8da5c4dfaead340f3b9407973952daa1b68b05563d49d5673",
+      "runtime/export.py": "6d54300cc45ef629948ac003124561566742dce12b92e72cf60d7d7b64e06197",
+      "runtime/handoff.py": "a87e0725e243e73b026005462d4a15d868642e9d2a290074b4a296a79e8420c8",
+      "runtime/planning.py": "fff90eab403608b91fed2096a3a0398a6d93c86f3fd01662b03d5a655432a57d",
+      "runtime/projection.py": "ced3df6552ac6861b57763fcf66c417611a708814dab61e54692fca98069cb12",
+      "runtime/recovery.py": "4dada06698fa996187af7c2ec1b41e2c85b7139268e9c9fd67265921fd61671d",
+      "runtime/requests.py": "498ccccfaa51aa3bc94142f187a663dfb0a2dd5c035e1e5ceaefe6cf21e7b806",
+      "runtime/schemas.py": "dea8d9bae056540ca489f1b38ee90add575f35e3ecaed6f85f88b9843406e2fc",
+      "runtime/store.py": "3e86fa05804ec34708670e0934b9b27556806fd3e008102f20b676b4fa5438a5",
+      "runtime/text_plan.py": "7f70e639923c039e346986f111aec330a448475760a8b5525ee7d8eaf0b20594",
+      "runtime/types.py": "1808cd3ab92354ac5f2beb114a99b8d5dd23de114170a80ab587d25889bb6693",
+      "schemas.py": "a21794c29932ce663abb0b96ee7d03f0d8d35bc6e08dd179dc207713a4f978d3",
+      "verification.py": "4663ecf733b835a85fb571157bf39729a0d2e42cc552b4ddd6da7c1e941c9239"
+    }
   },
   "adaptations": [
     "Relocate shared modules to jiuwenswarm.lh while preserving serialized long_horizon keys.",
@@ -16,19 +80,14 @@
     "Omit Chrys/ACP, SDK external drivers, benchmark launchers and C7 code. Include candidate archive, check receipt and delivery helpers used by the controller.",
     "Extract source_files, _safe_path and copy_files from terminal.py into workspace_files.py for delivery.",
     "Keep MemGraph naming and disabled default, native transport retry rail and public-test write guard.",
-    "Tests use explicit asyncio markers, embedded package/fixture paths and fake-native startup for protocol controls."
+    "Tests use explicit asyncio markers, embedded package/fixture paths and fake-native startup for protocol controls.",
+    "Embed the modern WorkRuntime source under jiuwenswarm.pact_core for both suite and benchmark. Internal imports use the package namespace. Keep upstream schema identifiers and resource bytes. Retire the standalone Campaign command and its dedicated adapter."
   ],
   "companion_wheels": {
     "pathspec": {
       "bundled_wheel": "jiuwenswarm/lh/wheels/pathspec-1.1.1-py3-none-any.whl",
       "sha256": "a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189",
       "source": "https://pypi.org/project/pathspec/1.1.1/"
-    },
-    "pact-core-legacy-campaign": {
-      "bundled_wheel": "jiuwenswarm/lh/wheels/legacy/pact_core-0.2.0.dev0-py3-none-any.whl",
-      "sha256": "4f08b2b6ae258823e0e1c824380f58579a6e4174d02b3b1338a32ee9eb76ab2a",
-      "source": "Chrys vendor/wheels/pact_core-0.2.0.dev0-py3-none-any.whl",
-      "revision": "040a11562ebfd2f29aac8971996c6b42fddf295a"
     }
   },
   "files": {
@@ -43,7 +102,7 @@
       "source_sha256": "935a1c1166b0c1ea35a82256345000bf2c73ded718d77773bc27a71ecce28f7d"
     },
     "jiuwenswarm/lh/acceptance_timing.py": {
-      "sha256": "632336d0e22f8f0a86952eb7815c4582293cbb80cc52c0fca7be78d004dc838c",
+      "sha256": "627659a60fe1d271b5d84b2d7c8cae0482738ee4d1e101572d18ee3f70e1b1a3",
       "source": "src/long_horizon/acceptance_timing.py",
       "source_sha256": "632336d0e22f8f0a86952eb7815c4582293cbb80cc52c0fca7be78d004dc838c"
     },
@@ -53,17 +112,17 @@
       "source_sha256": "6994d3c5d35f53aef1c429941238883725ad555be10d6ff385a41c2e10bdb83e"
     },
     "jiuwenswarm/lh/budget_boundary.py": {
-      "sha256": "02d657c68f3a99f59fac8a6944f20d357135d667c647338124466bd32ea4883b",
+      "sha256": "2538c5e014f5258606f3348f34bd076d5377b436e6dd223d00360dd61da3bc3c",
       "source": "src/long_horizon/budget_boundary.py",
       "source_sha256": "02d657c68f3a99f59fac8a6944f20d357135d667c647338124466bd32ea4883b"
     },
     "jiuwenswarm/lh/budget_origin.py": {
-      "sha256": "173202718dd0d0b9e33cb65a487382d9f818ed4ff50166ecb1971bdf1eba8838",
+      "sha256": "4f5a117c18ab2915c4a7a5de25c1d68a840f27d1f92399097a1f10de21e57950",
       "source": "src/long_horizon/budget_origin.py",
       "source_sha256": "173202718dd0d0b9e33cb65a487382d9f818ed4ff50166ecb1971bdf1eba8838"
     },
     "jiuwenswarm/lh/candidate_gate.py": {
-      "sha256": "43f15404da5f085d695522b8d6fa0e61088de726eb55f815d05cd540c0a58b8f",
+      "sha256": "4e44801a49d7d2b31923da5414d9c5bc9d94463fcf323091daa6b38fb58ea40b",
       "source": "src/long_horizon/candidate_gate.py",
       "source_sha256": "43f15404da5f085d695522b8d6fa0e61088de726eb55f815d05cd540c0a58b8f"
     },
@@ -83,7 +142,7 @@
       "source_sha256": "d58ac2f833315cf8a613584862f440c6c2b5a1c3a4d4bfc1a70cbaa31e9d641a"
     },
     "jiuwenswarm/lh/checkpoint_guard.py": {
-      "sha256": "44677172410af83a0abf12805fd5792d931d18273bbabe2421648481a74211a6",
+      "sha256": "fc20df74e62110d620c19a0e6c3a39218553fef527716769d6b6314f505c53b6",
       "source": "src/long_horizon/checkpoint_guard.py",
       "source_sha256": "44677172410af83a0abf12805fd5792d931d18273bbabe2421648481a74211a6"
     },
@@ -98,12 +157,12 @@
       "source_sha256": "97a9867e6417fc9b163ed9f12d0729a681e875a2b4c4e2dfb43c2867ff9c3bb5"
     },
     "jiuwenswarm/lh/control_policy.py": {
-      "sha256": "a2ada25efb4c34b53ce977cf30500ae8671e5bd2d6a07e20ea10a2bc94a74484",
+      "sha256": "3adbb5ada0d487a861e9b073903d73e1ddda98f35c27b635b542aa7d4e586de3",
       "source": "src/long_horizon/control_policy.py",
       "source_sha256": "a2ada25efb4c34b53ce977cf30500ae8671e5bd2d6a07e20ea10a2bc94a74484"
     },
     "jiuwenswarm/lh/controller.py": {
-      "sha256": "74aa2e39b2304e786109eb14bd875e315ee882571eb92972d4727b95b7782b39",
+      "sha256": "0038de5838b23b297008f8cb57c362fafdb858c5ffe942ba2a9bbf252d2271dd",
       "source": "src/long_horizon/controller.py",
       "source_sha256": "74aa2e39b2304e786109eb14bd875e315ee882571eb92972d4727b95b7782b39"
     },
@@ -113,12 +172,12 @@
       "source_sha256": "03d4a1d7c70d6883f23cc7bc49b7f5cd333a09efe7eca703051ffdc05ac9b95e"
     },
     "jiuwenswarm/lh/evidence.py": {
-      "sha256": "957cd0fe1db81fcafd3b86fe5de0d17a30dc1c4ef973fe768efe011a69ed8889",
+      "sha256": "e97241055212f603198ae4e8084385f6400edd99dd3bb99c9e4290bcef175071",
       "source": "src/long_horizon/evidence.py",
       "source_sha256": "957cd0fe1db81fcafd3b86fe5de0d17a30dc1c4ef973fe768efe011a69ed8889"
     },
     "jiuwenswarm/lh/file_artifacts.py": {
-      "sha256": "af1863a662a8254bb5165dd7178a23b6151386563fca17b3f555b706c509d6d9",
+      "sha256": "0bc5a9838854f9b3fa9b4211aff9db303d64ca1fb2d2d05e5c69db0816b41fd1",
       "source": "src/long_horizon/file_artifacts.py",
       "source_sha256": "af1863a662a8254bb5165dd7178a23b6151386563fca17b3f555b706c509d6d9"
     },
@@ -133,17 +192,17 @@
       "source_sha256": "c9f9002d40793107e8832eda152eb70f9e7ace418a3c0cc5518a9972a47bf652"
     },
     "jiuwenswarm/lh/harbor_unified/candidate_artifacts.py": {
-      "sha256": "683b1fbf788b5c273efe3da5f426f09b610f24b07d0fabe496de254aa9676dbb",
+      "sha256": "1e8bbb2e717c78ee88f6693074fad1c5c8334cce458783ff0a8234c79537b639",
       "source": "src/long_horizon/harbor_unified/candidate_artifacts.py",
       "source_sha256": "683b1fbf788b5c273efe3da5f426f09b610f24b07d0fabe496de254aa9676dbb"
     },
     "jiuwenswarm/lh/harbor_unified/delivery.py": {
-      "sha256": "bf566cf0dba76b52ca51a4d119956c11aeda5b6316b486de31a3c464e264e217",
+      "sha256": "bf301b459c97e73da979282d484aef8f0e94b33b14a54739bd92b88d90511d84",
       "source": "src/long_horizon/harbor_unified/delivery.py",
       "source_sha256": "08fc3e709860e532fded668db0b0c22e88a00055ab05619e7a49a4dc99c7cb10"
     },
     "jiuwenswarm/lh/harbor_unified/global_sequence.py": {
-      "sha256": "b62e731935cefc52566154b97f2cf4294fdf27d22e33872b7a4aa29a5495c91b",
+      "sha256": "893325cf900fe736ebf8d8518faebe5194488fba72e7996f710ceeac0b90f656",
       "source": "src/long_horizon/harbor_unified/global_sequence.py",
       "source_sha256": "b62e731935cefc52566154b97f2cf4294fdf27d22e33872b7a4aa29a5495c91b"
     },
@@ -158,7 +217,7 @@
       "source_sha256": "bbf2213561826ba0ebf86606f506c89525ece0e3bcec688a89b4017999cd6f7c"
     },
     "jiuwenswarm/lh/localization.py": {
-      "sha256": "6121d993a5ec4090873cc744b92e51a0a6ae8ad8335719ea357f7b82cf7a5dab",
+      "sha256": "9075d5c1ee2d4aa1a3f54579f58abb9c46ca6743c6896cd860edd41963d68a8b",
       "source": "src/long_horizon/localization.py",
       "source_sha256": "6121d993a5ec4090873cc744b92e51a0a6ae8ad8335719ea357f7b82cf7a5dab"
     },
@@ -188,7 +247,7 @@
       "source_sha256": "3e0081e93095b62c907f5727fe5d7ce81fe6900cd0ff6607604a468f0cdaba2b"
     },
     "jiuwenswarm/lh/planning_checkpoint.py": {
-      "sha256": "7f5560b33c9a08403ce11c6e743b45507e6d8d26e19529309b23d9cd569858dc",
+      "sha256": "c50f8d067e312f7b72c50d809c4eb89fae554368a6706d968982b1b239eb5e37",
       "source": "src/long_horizon/planning_checkpoint.py",
       "source_sha256": "7f5560b33c9a08403ce11c6e743b45507e6d8d26e19529309b23d9cd569858dc"
     },
@@ -198,12 +257,12 @@
       "source_sha256": "25772ebabb6c2203423a253f4290836bb6cd5ea81e58c96b1de4be91dd177d0c"
     },
     "jiuwenswarm/lh/plugins/generic.py": {
-      "sha256": "daf99f95e4757619cd54609f68e664270ead043b2e8f86b1021c22b790285539",
+      "sha256": "0777fb230d2c751d09fd6621837dfc6f2b880c64219be68a2e21085f3ed3fb33",
       "source": "src/long_horizon/plugins/generic.py",
       "source_sha256": "daf99f95e4757619cd54609f68e664270ead043b2e8f86b1021c22b790285539"
     },
     "jiuwenswarm/lh/plugins/jiuwen.py": {
-      "sha256": "d6165009a475a02620fce6894ca972b77a5f97efd3f794c4d050d9d4eca97bd9",
+      "sha256": "b48577422f4f5a235770f6e14ed7655223fb1475184d669286919752cf2b909d",
       "source": "src/long_horizon/plugins/jiuwen.py",
       "source_sha256": "e677bd1171934ea1fbb66ef435673f1463756505b9de6412f78ed54a4ee9bc3a"
     },
@@ -213,17 +272,17 @@
       "source_sha256": "e419663b628f77fa31c9d2ad8424067428ba1a64ab0053bcae1bd450c293d422"
     },
     "jiuwenswarm/lh/plugins/native_checkpoint.py": {
-      "sha256": "1c30c1f79616950e27a4e10ded46bb7a84887e869ffae65955931311322771b1",
+      "sha256": "17bde8df0967100c625dfb32ea7c42e6605c12ec08b851038280c26544186c27",
       "source": "src/long_horizon/plugins/native_checkpoint.py",
       "source_sha256": "1c30c1f79616950e27a4e10ded46bb7a84887e869ffae65955931311322771b1"
     },
     "jiuwenswarm/lh/plugins/transport_recovery.py": {
-      "sha256": "0cddd337ef00ff702a44c324d98527e896f1290efe8aefa00f4fd9af2076a2e1",
+      "sha256": "14b627a42f05e8ffb998aecf06a4dcd4465cb35f9f8c552d929b7110e4b27f0f",
       "source": "src/long_horizon/plugins/transport_recovery.py",
       "source_sha256": "0cddd337ef00ff702a44c324d98527e896f1290efe8aefa00f4fd9af2076a2e1"
     },
     "jiuwenswarm/lh/ports.py": {
-      "sha256": "ba88cfc0887085e7cf46652aa18f10ec599a7337343982ab556bddc4b280f5aa",
+      "sha256": "5807ee6f1cf0542418495294e6d2f9367e2d53ce5dcc01ecf18615e9c850ff54",
       "source": "src/long_horizon/ports.py",
       "source_sha256": "ba88cfc0887085e7cf46652aa18f10ec599a7337343982ab556bddc4b280f5aa"
     },
@@ -233,7 +292,7 @@
       "source_sha256": "37987f8dddeff3544a09d8a905fdf33f63bd4f3c2dfa2be534ac66192420694a"
     },
     "jiuwenswarm/lh/process_termination.py": {
-      "sha256": "f1edc7cc871e98fd734334608e8aa808d07e52064737898c926edf9649ef297e",
+      "sha256": "00e038aeadfa7d46d594adab6ebd36661b6d0fe9056e797244a4c994fcfb2eb7",
       "source": "src/long_horizon/process_termination.py",
       "source_sha256": "f1edc7cc871e98fd734334608e8aa808d07e52064737898c926edf9649ef297e"
     },
@@ -263,7 +322,7 @@
       "source_sha256": "e64831aab90e4e7fd9a1c16cecc08e8cc1c96518022c637c2f785b51cb26af97"
     },
     "jiuwenswarm/lh/review_admissions.py": {
-      "sha256": "e24666873d376832db7c48f0dff0988bbe7bd87ea582ca004663470b2fc909b1",
+      "sha256": "b4f8ca6a49afa13bd7561bd8fa25fe5e55dc37c0f75dce9b14c4556f3fe095c9",
       "source": "src/long_horizon/review_admissions.py",
       "source_sha256": "e24666873d376832db7c48f0dff0988bbe7bd87ea582ca004663470b2fc909b1"
     },
@@ -273,17 +332,17 @@
       "source_sha256": "7c6f53c168ed110d6fd959274379e978ef1a3ffdf2faae268ed18fe94927c81e"
     },
     "jiuwenswarm/lh/review_limits.py": {
-      "sha256": "51f356a966acbcef606766bd06dd0dc20ba1a87f424b6158b045f642ed97c704",
+      "sha256": "6206ccc98ee07b9edf30c6efb30f582b9fa55f6d9e9f1112a2f5d12d0e96ff26",
       "source": "src/long_horizon/review_limits.py",
       "source_sha256": "51f356a966acbcef606766bd06dd0dc20ba1a87f424b6158b045f642ed97c704"
     },
     "jiuwenswarm/lh/review_transport.py": {
-      "sha256": "7becfc10a737e0e0181d15ebcabe0cccc1cdb2a58d81eb2f4d0b00c470e1b279",
+      "sha256": "dfdce05ed996f3d1369b9c712178d7389616cbfbf3527ba7a25078e50aeaa594",
       "source": "src/long_horizon/review_transport.py",
       "source_sha256": "7becfc10a737e0e0181d15ebcabe0cccc1cdb2a58d81eb2f4d0b00c470e1b279"
     },
     "jiuwenswarm/lh/reviewer_execution.py": {
-      "sha256": "bd4ea897d0361eaafd7f39670bfc30371bd8936ca0656edc9f5428d78b40af9b",
+      "sha256": "d64bae86a9cee9654dbddd91e95cb5d77d80b9446a75a6b3112d377e4f3ad533",
       "source": "src/long_horizon/reviewer_execution.py",
       "source_sha256": "bd4ea897d0361eaafd7f39670bfc30371bd8936ca0656edc9f5428d78b40af9b"
     },
@@ -301,22 +360,22 @@
       "source_sha256": "307f63c1ebc9a1e46bf8f909f8ac4a94f9bbf9906228103b2af3d289292262a0"
     },
     "jiuwenswarm/lh/side_calls.py": {
-      "sha256": "f6dee9b25929ba1cf349d19e62201a23a32548d4b51908fc339a2e65aa1f5edf",
+      "sha256": "3e7daa0b91d1eef9c723667a5b4c8b140904fc9399390a8f2f7680d307b382f7",
       "source": "src/long_horizon/side_calls.py",
       "source_sha256": "f6dee9b25929ba1cf349d19e62201a23a32548d4b51908fc339a2e65aa1f5edf"
     },
     "jiuwenswarm/lh/snapshot_resources.py": {
-      "sha256": "75159a820e82dd918c3c694ebe6639c425accc8854cbe2d5e17a6b8afcf4c0af",
+      "sha256": "b1258b7af3ab44e4dfcff3e3345dabf6b558b8c7629857ea7eb463d0dac45921",
       "source": "src/long_horizon/snapshot_resources.py",
       "source_sha256": "75159a820e82dd918c3c694ebe6639c425accc8854cbe2d5e17a6b8afcf4c0af"
     },
     "jiuwenswarm/lh/suite.py": {
-      "sha256": "f04892ee0c17efcde364d98346d7d9b5f750021f4313a861c76ec22d41ceaf0c",
+      "sha256": "d67e3973867ba64923529b7af7af6c091c7f06783073d6f2c80da414ae9bf5a0",
       "source": "src/long_horizon/suite.py",
       "source_sha256": "f04892ee0c17efcde364d98346d7d9b5f750021f4313a861c76ec22d41ceaf0c"
     },
     "jiuwenswarm/lh/transport_failure.py": {
-      "sha256": "bf78ed2ba8d38691b82371714be108b8a282fa3e2dabd246d77f1b5132825896",
+      "sha256": "f32aae3e08d97dd4068f1fd5e92377b250fcc0cdb8c3655cf15054faaab40738",
       "source": "src/long_horizon/transport_failure.py",
       "source_sha256": "bf78ed2ba8d38691b82371714be108b8a282fa3e2dabd246d77f1b5132825896"
     },
@@ -334,12 +393,12 @@
       "sha256": "8b52b736d7ab082e8c08d18b0d6d85470385c2040c0533534546c9c09b7bfcfc"
     },
     "jiuwenswarm/long_horizon/__init__.py": {
-      "sha256": "889e83276e34f029fe44d60a19e626d9509faa70fb08ef217ac4828c1c6b3bd8",
+      "sha256": "a084a2164fe65d2fd474c5423e5cc94321931df9f86fd90421901234926cefb9",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/__init__.py",
       "source_sha256": "889e83276e34f029fe44d60a19e626d9509faa70fb08ef217ac4828c1c6b3bd8"
     },
     "jiuwenswarm/long_horizon/__main__.py": {
-      "sha256": "cfc5f55872dce2796673640653b4eec6a9008bac8e7bf15c63244dbfcf0aa4df",
+      "sha256": "caed5779dedbeff78941bbab4d6313a77e2c7ac6ed3ff29017d06c918152e835",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/__main__.py",
       "source_sha256": "cfc5f55872dce2796673640653b4eec6a9008bac8e7bf15c63244dbfcf0aa4df"
     },
@@ -387,7 +446,7 @@
       "source_sha256": "5ed82bc991289844cfeb32a966582a5098dac289fc369bdc6ee749c919145af9"
     },
     "jiuwenswarm/long_horizon/clarification/model.py": {
-      "sha256": "142d86aad72cd7e3438e2d36174c3fda5c412592691afb4f15f4c134cb61c897",
+      "sha256": "3152e70c1cad5c2bad407c875e8da1ff4d00224518955a9d3aaac48d3e63faf4",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/model.py",
       "source_sha256": "142d86aad72cd7e3438e2d36174c3fda5c412592691afb4f15f4c134cb61c897"
     },
@@ -432,12 +491,12 @@
       "source_sha256": "ad417502cd6f5cbbf5807d6f5ad9b59f85aea074cfa4c0eb1993ed99bddcc282"
     },
     "jiuwenswarm/long_horizon/clarification/verification.py": {
-      "sha256": "2bd8632944cdecef9f40e81557008951a101f019348473bebdeabdeca0fed7c7",
+      "sha256": "712cc3fe32d2c7d0ad1df44b2679a07158726aa87008a51b47a7a7012886ab53",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/clarification/verification.py",
       "source_sha256": "2bd8632944cdecef9f40e81557008951a101f019348473bebdeabdeca0fed7c7"
     },
     "jiuwenswarm/long_horizon/controller.py": {
-      "sha256": "7674b3ddfcb87310cce6ea453f85125cdd328eaadb90e2d386d99f56e82ae8af",
+      "sha256": "23199e4d20ae5de09655b1a6ca9515aac15e7ceb4803b903232f5af241688445",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/controller.py",
       "source_sha256": "1b484ba47405b802d8cef5e973824c7102b7831dae3c4547227a38ef47e70fc1"
     },
@@ -470,42 +529,32 @@
       "sha256": "c40ff93ebde2e7a1e2140411a8ad93ce31871b1d633b631dd07b620ca892e598"
     },
     "jiuwenswarm/long_horizon/pact/__init__.py": {
-      "sha256": "6ff3f4a07edbd9115a05a6a4733ede8de7cac30c48f59c1621a50d2b4ca3f0dc",
+      "sha256": "9b9c8ba28b352de3b64e8e35232a9cf83f0e68f517e03ce0bcd1216944bc7b47",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/__init__.py",
       "source_sha256": "6ff3f4a07edbd9115a05a6a4733ede8de7cac30c48f59c1621a50d2b4ca3f0dc"
     },
     "jiuwenswarm/long_horizon/pact/benchmark.py": {
-      "sha256": "fe1de61758f998261080633e4a9332194615910cd095d82888d271b89de39dcc",
+      "sha256": "4f748ac675429037cbdb001b7fb26dfc80b60fce05b92d0f31f434853ff67c0e",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/benchmark.py",
       "source_sha256": "fe1de61758f998261080633e4a9332194615910cd095d82888d271b89de39dcc"
     },
     "jiuwenswarm/long_horizon/pact/benchmark_native.py": {
-      "sha256": "c805783585bd7e7643c29989f70a6e5f3b153146de709f613428c17541a7851c",
+      "sha256": "30e4a9b6287fcb73f94080020cf472e71a6f735428ac598ccbc7d2f907c99a56",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/benchmark_native.py",
       "source_sha256": "cf72439bc123130c942ac2a9957ba99d47d8e3f490b0f2453eb629f5e87cd8c1"
     },
-    "jiuwenswarm/long_horizon/pact/budget.py": {
-      "sha256": "c6643f1a218e69c2431babf4c04cc7394cc3364150256e5254128b2292a31b3a",
-      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/budget.py",
-      "source_sha256": "c6643f1a218e69c2431babf4c04cc7394cc3364150256e5254128b2292a31b3a"
-    },
-    "jiuwenswarm/long_horizon/pact/campaign.py": {
-      "sha256": "bc722873d97c85855668daf40e7f24049736212e9468734da2ad820d74f643c9",
-      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/campaign.py",
-      "source_sha256": "bc722873d97c85855668daf40e7f24049736212e9468734da2ad820d74f643c9"
-    },
     "jiuwenswarm/long_horizon/pact/configuration.py": {
-      "sha256": "1509069947286015ea6a5e0e3c2668ee46c8e2d5ca5a25fe16f37124d3ed2e2b",
+      "sha256": "90b6f9d679740ee7c066419973c48aacc6753377f802b3a86fad22b8fc6193f8",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/configuration.py",
       "source_sha256": "1509069947286015ea6a5e0e3c2668ee46c8e2d5ca5a25fe16f37124d3ed2e2b"
     },
     "jiuwenswarm/long_horizon/pact/long_horizon_benchmark.py": {
-      "sha256": "24f0908d351bc297857e62f44c50845b4163a253b32695efbb5bcdd59d57e0d0",
+      "sha256": "1673ad94747b7e65bb7b14e68d6df6a65fe873339f1ea7152dfa7d873d3ab9b8",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/long_horizon_benchmark.py",
       "source_sha256": "f68c8600e457e5c237c036a263fc4c17561a3b6a87cd820e093633562aeb1c85"
     },
     "jiuwenswarm/long_horizon/pact/long_horizon_evidence.py": {
-      "sha256": "0db97439974cc6e2a948263f1a1929d65a61bc027a09ee0c71057fd203c18c96",
+      "sha256": "5f289f4f38d3b337fa316dc6de8edd263a78e947832fb005cdc6165772959663",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/long_horizon_evidence.py",
       "source_sha256": "0db97439974cc6e2a948263f1a1929d65a61bc027a09ee0c71057fd203c18c96"
     },
@@ -513,31 +562,6 @@
       "sha256": "0ea538407ab4ad0307e750725bfe42dd6ba9280fbbeb7858fd4ecf692605f992",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/long_horizon_progress.py",
       "source_sha256": "0ea538407ab4ad0307e750725bfe42dd6ba9280fbbeb7858fd4ecf692605f992"
-    },
-    "jiuwenswarm/long_horizon/pact/protocol.py": {
-      "sha256": "d29c58375677d6c4a51fd720b875a8d24dd353a1d988379c594c1871d1dbcba1",
-      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/protocol.py",
-      "source_sha256": "d29c58375677d6c4a51fd720b875a8d24dd353a1d988379c594c1871d1dbcba1"
-    },
-    "jiuwenswarm/long_horizon/pact/public_verification.py": {
-      "sha256": "3f3532cdc1fb7f424043e850ec5aee9bb1be78a2079fb9a63f0c6bac32ddd313",
-      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/public_verification.py",
-      "source_sha256": "3f3532cdc1fb7f424043e850ec5aee9bb1be78a2079fb9a63f0c6bac32ddd313"
-    },
-    "jiuwenswarm/long_horizon/pact/review_context.py": {
-      "sha256": "40c11dde0018cfc4d188c57226f6b9fa41e4f3a371445f1a61d7b775bb67fa40",
-      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/review_context.py",
-      "source_sha256": "40c11dde0018cfc4d188c57226f6b9fa41e4f3a371445f1a61d7b775bb67fa40"
-    },
-    "jiuwenswarm/long_horizon/pact/role_runner.py": {
-      "sha256": "357b94a83a46188f6b27f4a09729debd31224f859310d7a34f85919c509739ca",
-      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/role_runner.py",
-      "source_sha256": "357b94a83a46188f6b27f4a09729debd31224f859310d7a34f85919c509739ca"
-    },
-    "jiuwenswarm/long_horizon/pact/verify_shim.py": {
-      "sha256": "80f47acb9eed9fef2171c746095d1b7eb8eee5042b4cd9d9a994dcd96f62880c",
-      "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/pact/verify_shim.py",
-      "source_sha256": "80f47acb9eed9fef2171c746095d1b7eb8eee5042b4cd9d9a994dcd96f62880c"
     },
     "jiuwenswarm/long_horizon/process_kill_guard.py": {
       "sha256": "8ab8efaba72ab0d41809dd0228f8b2d16e9e7f987c133390a7f3972350202093",

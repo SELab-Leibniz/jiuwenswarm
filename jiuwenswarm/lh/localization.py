@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from pact_core.artifacts import write_json_atomic
-from pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
 
 from . import semantic_graph
 from .budget_origin import validate_cutoff

@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
 from pydantic import TypeAdapter
 
 from ..capacity import scaled

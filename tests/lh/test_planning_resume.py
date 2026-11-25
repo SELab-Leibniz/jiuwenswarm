@@ -9,7 +9,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from pact_core.schemas import TurnResult
+from jiuwenswarm.pact_core.schemas import TurnResult
 from test_suite_flow import SuiteAgent, plugin, trial
 
 from jiuwenswarm.lh import LongHorizonBenchmark

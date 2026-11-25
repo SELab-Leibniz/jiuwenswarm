@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 import pytest
-from pact_core.runtime import AcceptancePolicy
+from jiuwenswarm.pact_core.runtime import AcceptancePolicy
 from test_control_regressions import repository
 
 from jiuwenswarm.lh.early_acceptance_audit import parse_audit_report

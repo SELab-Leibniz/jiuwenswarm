@@ -13,8 +13,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from pact_core.adapters.base import AgentAdapter
-from pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.adapters.base import AgentAdapter
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
 
 
 @dataclass(frozen=True, slots=True)

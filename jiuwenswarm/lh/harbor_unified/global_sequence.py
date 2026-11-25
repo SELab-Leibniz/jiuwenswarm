@@ -19,8 +19,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from pact_core.artifacts import write_json_atomic
-from pact_core.runtime import RuntimeStateError
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.runtime import RuntimeStateError
 
 SCHEMA = "harbor-runtime/candidate-global-sequence/v1"
 SEQUENCE_FILENAME = "candidate-global-sequence.json"

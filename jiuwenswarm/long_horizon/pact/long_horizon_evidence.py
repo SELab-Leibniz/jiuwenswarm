@@ -23,11 +23,11 @@ from pathlib import Path
 from typing import cast
 from uuid import uuid4
 
-from pact_core.artifacts import read_json, write_json_atomic
-from pact_core.benchmark.budget import BenchBudget
-from pact_core.runtime import RuntimeContractError
-from pact_core.runtime.export import ExportReceipt, verify_export
-from pact_core.schemas import TurnRequest
+from jiuwenswarm.pact_core.artifacts import read_json, write_json_atomic
+from jiuwenswarm.pact_core.benchmark.budget import BenchBudget
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.runtime.export import ExportReceipt, verify_export
+from jiuwenswarm.pact_core.schemas import TurnRequest
 
 from jiuwenswarm.long_horizon.clarification.compat import Workspace, ensure_owner_only_directory
 from jiuwenswarm.long_horizon.clarification.artifacts import CLARIFICATION_PHASE_DIR

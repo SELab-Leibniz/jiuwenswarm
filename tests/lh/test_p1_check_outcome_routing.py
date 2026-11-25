@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from pact_core import verification
+from jiuwenswarm.pact_core import verification
 from test_control_regressions import BAD, GOOD, VERIFY, FakeAdapter, FixturePlugin, repository
 
 from jiuwenswarm.lh.controller import BenchmarkArguments, LongHorizonBenchmark, _first_check_outcome

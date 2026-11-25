@@ -14,8 +14,8 @@ from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
-from pact_core.artifacts import write_json_atomic
-from pact_core.runtime import WorkSnapshot
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.runtime import WorkSnapshot
 
 from .review_governance import DEFAULT_PUBLIC_CHECK_SECONDS, RECENT_SAMPLES
 

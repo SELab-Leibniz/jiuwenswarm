@@ -1,19 +1,36 @@
-# 固定 long-horizon 形态
+# Jiuwen 长程工作流原生适配器
 
-本集成以 JiuwenSwarm `49c9f5b4c66d193e4168bfa9c82c2df025c773f0` 为基座，移植
-Chrys 的长程工作流。入口始终执行 long-horizon，不经过路由分类器。迁移提交
-是独立的被测版本，不能将其结果标为原始 JiuwenSwarm 提交的成绩。
+`jiuwenswarm-process --lh` 用 Jiuwen 的原生 worker 执行模型和工具调用。`jiuwenswarm.lh` 调度工作流，[PACT Core WorkRuntime](../pact_core/) 保存 Work、候选、公开检查、审查与交付状态。本目录提供两种工作流共用的冻结快照、澄清、原生角色和证据适配器。
 
-参考工作流更新至 Chrys `0561cf0fa584fd56fdcd98c90cca6a5bc1890d95`。
-流程为：冻结 S0 → P0 → S0 上的三路澄清调查、选择与可选代码定位 →
-PACT 输入与公开检查 → 需要时进行 repair → PACT campaign。各个模型阶段和 PACT 的 Manager、
-Planner、Worker、Reviewer 都调用 JiuwenSwarm 原生机器接口；没有隐藏的
-Chrys solver。`pact-core` 继续负责 campaign 状态、worktree、验证和接纳。
+## 安装与执行
 
-`clarification/` 保留了精确参考版本的 schema、提示、证据校验与快照逻辑，
-实际模型适配改为 JiuwenSwarm。定位使用原生只读文件搜索，必须能核验 S0
-文件、行范围和实际工具证据。初版关闭外部记忆、写回、CodeGraph 加速与
-semantic index，配置和输出均记录这些选择。
+```bash
+uv sync --frozen --extra lh
+uv run --no-sync jiuwenswarm-process --lh --workflow suite --task /inputs/task.md --cwd /workspace/project
+uv run --no-sync jiuwenswarm-process --lh --workflow benchmark --task /inputs/task.md --cwd /workspace/project
+```
+
+默认的 `suite` 从 S0 和 P0 生成 Goal Contract、Initial Plan 和 P1，再进入审查与修复。`benchmark` 以原始任务创建 Work，在 P0 和 S0 澄清后进入 BenchDriver。两者都使用仓库内的 WorkRuntime 源码。独立测评结果由外部 verifier 生成。
+
+旧命令 `python -m jiuwenswarm.long_horizon` 现在输出迁移说明。启动新 Work 时把 `--workspace` 换成 `--cwd`、`--prompt-file` 换成 `--task`、`--output-dir` 换成 `--output`。指定输出目录时，选择 Git 工作区外的新目录。模型凭据通过原生配置的环境变量引用提供。[完整安装与参数说明](../lh/README.md)
+
+## 原生阶段与证据
+
+公开检查先在 S0 上调查，再使用全新的无工具 session 合成；被拒绝的
+工件只在该合成 session 内修正。无工具策略是本集成新增的显式原生扩展，
+需确认实际模型请求不含工具定义；默认 Jiuwen Code 工具行为保持不变。
+每条 AC 完成独立审查后才发布可复用检查点。
+
+原生 Deep/Code 及无工具合成可显式配置
+`execution_guard.model_transport_retry: {enabled: true, backoff_seconds: [3, 7, 15]}`。
+该策略默认关闭，只处理异常链中的 `httpx.ReadError`；使用固定 SDK 的
+模型调用 rail，在失败的消息提交和工具分发之前重试当前调用。已完成的
+工具和会话历史不重放，失败的流片段保留为观察记录而不提交到模型历史。
+每次调用共享 SDK 的重试计数，配置最多五个、每个不超过 60 秒的退避。
+重试仍受原阶段截止时间限制，取消、认证拒绝和其他异常不走这条策略。
+`chat.model_transport_retry` 记录失败调用序号、预算和已观察片段数，不记录
+模型文本、请求正文或凭据；原始错误记录仍保留。启用此策略属于新的
+被测配置，需要冻结新 scaffold，不能将其结果覆盖到旧版本尝试。
 
 MemGraph（原 ContextGraph 集成）默认关闭，只有设置 `JIUWENSWARM_MEMGRAPH_ENABLED=1`
 并提供 `MEMGRAPH_HTTP_URL`、`MEMGRAPH_EXPECTED_RECEIPT_SHA256`、`MEMGRAPH_EXPECTED_CORPUS`
@@ -29,90 +46,7 @@ receipt 和传输地址，启动前及每次调用均检查 release 身份。工
 与关闭图的初版及 Chrys 的图实验分别报告。健康检查不能证明 agent 实际
 查询了图，实际查询次数由不含请求/响应正文的配对诊断 journal 记录。
 
-## 安装与执行
-
-此历史 Campaign 入口使用 PACT Core `0.2.0.dev0`。在单独的 Python 3.12
-虚拟环境中，从本分支根目录安装 JiuwenSwarm 和配套 wheel。
-
-```bash
-python -m pip install .
-python -m pip install --no-index jiuwenswarm/lh/wheels/pathspec-1.1.1-py3-none-any.whl jiuwenswarm/lh/wheels/legacy/pact_core-0.2.0.dev0-py3-none-any.whl
-```
-
-现代 `--lh` 入口使用 [LH 安装说明](../lh/README.md) 中的环境。两版 Core 的来源见
-[PROVENANCE.md](PROVENANCE.md)。
-正式评测由私有 [jiuwenswarm-bench](https://github.com/wzh4464/jiuwenswarm-bench)
-构建内容寻址镜像、注入只含环境引用的模型配置并固定全部输入。
-
-```bash
-python -m jiuwenswarm.long_horizon \
-  --workspace /workspace/project \
-  --prompt-file /inputs/task.md \
-  --output-dir /agent_out/long-horizon-suite \
-  --worker-bin /opt/jiuwenswarm-bench/bin/jiuwenswarm-worker \
-  --config-template /agent_out/jiuwenswarm/state/config/config.yaml \
-  --timeout-seconds 172200
-```
-
-输出目录必须在项目外且每次新建。模型密钥只通过环境变量提供。bench 会
-注入原始基座与实际 suite 提交的完整 SHA。工作流完成只说明执行链完整，
-最终任务是否解决必须由独立 benchmark verifier 判定。
-
-上述命令在 bench 构建的镜像内执行。worker launcher 先将原生 agent-core
-日志指向该阶段的外部 state 目录，再进入原生机器接口，避免日志写入 S0。
-每个原生阶段的 Python 字节码缓存也放在自己的 `state/python-cache`，
-由 `PYTHONPYCACHEPREFIX` 指定，并在 `metadata.json` 中记录。只读角色的
-root 缓存不能留在共享扩展目录中，否则会阻止后续降权 Worker 扫描扩展。
-同会话纠正继续使用原状态目录；源码、公开测试保护和候选导出不受缓存
-位置影响。
-
-## 预算与恢复
-
-原生 Deep/Code 及无工具合成可显式配置
-`execution_guard.model_transport_retry: {enabled: true, backoff_seconds: [3, 7, 15]}`。
-该策略默认关闭，只处理异常链中的 `httpx.ReadError`；使用固定 SDK 的
-模型调用 rail，在失败的消息提交和工具分发之前重试当前调用。已完成的
-工具和会话历史不重放，失败的流片段保留为观察记录而不提交到模型历史。
-每次调用共享 SDK 的重试计数，配置最多五个、每个不超过 60 秒的退避。
-重试仍受原阶段截止时间限制，取消、认证拒绝和其他异常不走这条策略。
-`chat.model_transport_retry` 记录失败调用序号、预算和已观察片段数，不记录
-模型文本、请求正文或凭据；原始错误记录仍保留。启用此策略属于新的
-被测配置，需要冻结新 scaffold，不能将其结果覆盖到旧版本尝试。
-
-P0/repair 各有 6 小时基础预算，澄清及 PACT 输入各有 2 小时，PACT 单角色
-有 3 小时；2 小时 reserve 纳入该阶段的累计预算，总时间仍受外层
-上限约束。同会话格式纠正不重置截止时间。超时、输出预算耗尽、取消或
-信号中断会保留真实会话、候选补丁、Git bundle 和阶段凭据。
-
-PACT 每个 mission 最多 3 个 Worker/Reviewer 回合，与固定 ChrysPact profile
-一致；这一上限不替代完整 campaign 的时间预算。
-
-输出耗尽根据原生流中的实际 usage/finish reason 事件识别，随后终止所属
-进程组。这不保证复现 Chrys 内部在 validator/tool 之前暂停的精确时序；
-此类未完成尝试不会进入独立判分。
-
-阶段之间使用独立 Jiuwen session；阶段内有界格式纠正通过原生持久状态
-恢复同一 session，每次使用新 request ID 和独立、不可变的调用凭据。
-Manager 或 Planner 最多补交一次。失败、预算耗尽或中断后不再补交。
-容器假模型探针已观察到跨进程历史恢复，但固定原生版本的异步历史写入
-不提供逐次持久化确认；不能仅凭相同 session ID 声称完整历史已恢复。
-Reviewer 返回严格 JSON，由 adapter 保存为 PACT 的传输工件，
-保持 reviewer 的只读工具边界。
-
-公开检查先在 S0 上调查，再使用全新的无工具 session 合成；被拒绝的
-工件只在该合成 session 内修正。无工具策略是本集成新增的显式原生扩展，
-需确认实际模型请求不含工具定义；默认 Jiuwen Code 工具行为保持不变。
-每条 AC 完成独立审查后才发布可复用检查点。
-
-澄清 proposer 仍将调查和合成合并在原生 Code 调用内，全程允许 read/grep；
-最多一次格式修正、一次证据补充。这与 Chrys 分开的 proposer 无工具合成
-轮次不同。控制器还直接启动 PACT，省去 Chrys 的模型交接轮次；比较结果
-需连同这些已记录的适配差异解释。
-
-阶段快照保留源文件、已接受工件、真实调用凭据及配置身份，完成标记最后
-写入。显式 P0 恢复必须验证包哈希、原始需求和干净的原 Git 基座，再跳过
-初始 P0 模型调用，从澄清继续。恢复产物单独标记，不计作 fresh pass@1。
-完整 workflow 和任意 PACT 角色的跨进程自动恢复仍未实现。
+## 读取归档的阶段检查点
 
 离线工具不调用模型；在本集成的 Python 环境中执行：
 
@@ -127,30 +61,11 @@ python -m jiuwenswarm.long_horizon.workflow_checkpoint export-p0 /path/to/long-h
 `restore` 仅恢复源文件供检查。正式恢复运行由 bench 固定 package SHA-256
 和原 attempt 身份，不能把任意修改过的工作目录作为已恢复 P0。
 
-## 验证
-
-```bash
-.suite-venv/bin/python -m pytest -q \
-  --confcutdir=tests/long_horizon -o addopts='' tests/long_horizon
-```
-
-这些测试使用原生协议的假进程、临时 Git 仓库和真实 PACT 控制平面，覆盖
-只读权限、证据、预算/中断、补丁恢复、公开验证与流程接线；它们不产生
-模型评测分数。容器安装、假模型工具探测、独立 grader 控制和真实模型
-评测分别记录，不能互相替代。
-
-更新后的独立入口为 `python -m jiuwenswarm.long_horizon.pact.long_horizon_benchmark`，
-参考 Chrys `3f78185e298800b3e3f735f932a7ee2abb7bc25f`。它执行原始任务 → P0 →
-S0 澄清 → PACT BenchDriver，不再强制先生成 Goal Contract、Initial Plan 与
-公开 verifier。原生 Worker/Reviewer、澄清 side call 共享固定 trial 预算，
-不经过路由。最终输出 `selection.json` 和 Core 封存候选；内部接纳和独立评测
-分开记录。旧入口和旧测评工件保留，不能混入新版本成绩。
-
 ## 公开源码写入边界
 
 专用 `pact.long_horizon_benchmark` 入口启用 `linux-dac/v2` 写入保护。
 该模式要求固定 Linux 求解镜像中的 root 控制器和 `setpriv`；不支持的平台
-在模型调用前失败。普通 `JiuwenWorker` 和旧工作流入口默认不启用此模式。
+在模型调用前失败。普通 `JiuwenWorker` 默认不启用此模式。
 
 控制器只从原始公开源码的 Git 跟踪文件名建立测试清单：目录名为
 `test`、`tests`、`__tests__`、`testdata`、`fixtures`、`__fixtures__`，或文件名

@@ -13,8 +13,8 @@ from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
-from pact_core.kernel import default_worktree_root, read_work_candidate
-from pact_core.runtime import RuntimeContractError, WorkRuntime, control_plane
+from jiuwenswarm.pact_core.kernel import default_worktree_root, read_work_candidate
+from jiuwenswarm.pact_core.runtime import RuntimeContractError, WorkRuntime, control_plane
 
 from ..acceptance_timing import AcceptanceTimings
 from ..check_prerequisites import observed_command
@@ -291,7 +291,7 @@ class EvidenceWorkRuntime(WorkRuntime):
         state = self.read_work(work_id)
         methods, _ = method_diagnosis(state)
         if methods and isinstance(decisions, list):
-            from pact_core.runtime.checks import normalize_decisions
+            from jiuwenswarm.pact_core.runtime.checks import normalize_decisions
 
             # Validate the entire transaction before partitioning it, so
             # stale versions, duplicates and malformed decisions still fail.

@@ -20,9 +20,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pact_core.runtime import RuntimeStateError
-from pact_core.runtime.export import ExportReceipt, verify_export
-from pact_core.runtime.types import CandidateRef
+from jiuwenswarm.pact_core.runtime import RuntimeStateError
+from jiuwenswarm.pact_core.runtime.export import ExportReceipt, verify_export
+from jiuwenswarm.pact_core.runtime.types import CandidateRef
 
 from ..checkpoint_guard import sha256_file
 

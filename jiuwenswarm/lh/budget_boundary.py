@@ -1,6 +1,6 @@
 """Budget-ledger boundary for role adapters.
 
-``pact_core.benchmark.budget.BudgetedAdapter`` records ``result.status`` of every
+``jiuwenswarm.pact_core.benchmark.budget.BudgetedAdapter`` records ``result.status`` of every
 turn verbatim, while the ledger reader rejects any status outside a fixed set and
 then fails the whole trial with ``Invalid benchmark call role or status``. Several
 controller layers above ``RoleBoundary`` (for example a cancelled Reviewer
@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
-from pact_core.benchmark.budget import BudgetedAdapter as _CoreBudgetedAdapter
+from jiuwenswarm.pact_core.benchmark.budget import BudgetedAdapter as _CoreBudgetedAdapter
 
 # Mirrors the finished-call statuses accepted by the vendored Core budget reader.
 LEDGER_TURN_STATUSES = frozenset({"completed", "timeout", "output_missing", "spawn_failed", "error"})

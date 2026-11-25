@@ -7,9 +7,9 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from pact_core.artifacts import write_json_atomic
-from pact_core.runtime import RuntimeContractError
-from pact_core.runtime.export import ExportReceipt
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.runtime.export import ExportReceipt
 
 
 def sha256_bytes(data: bytes) -> str:

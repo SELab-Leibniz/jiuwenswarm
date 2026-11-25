@@ -8,7 +8,7 @@ import json
 from dataclasses import replace
 
 import pytest
-from pact_core.runtime import WorkRuntime
+from jiuwenswarm.pact_core.runtime import WorkRuntime
 from test_suite_flow import SuiteAgent, plugin, trial
 
 from jiuwenswarm.lh import Capabilities, ExecutionBinding, LongHorizonBenchmark

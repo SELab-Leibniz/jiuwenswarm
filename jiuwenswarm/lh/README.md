@@ -79,14 +79,14 @@ Linux root 环境下可通过 `--reviewer-uid` / `--reviewer-gid` 配置专用 R
 
 ## 从 PR 安装
 
-在本分支根目录使用 Python 3.11–3.13。启用 `lh` extra 会安装当前 suite 所需的 PACT Core 和 pathspec。
+在本分支根目录使用 Python 3.11–3.13。WorkSwarm 随仓库提供 [PACT Core WorkRuntime 源码](../pact_core/)。默认的 `suite` 和原始任务 `benchmark` 都导入这份源码。`lh` extra 安装快照过滤器所需的 `pathspec`。
 
 ```bash
 uv sync --frozen --extra lh
 uv run --no-sync jiuwenswarm-process --lh --help
 ```
 
-如果已经按 JiuwenSwarm 的常规流程安装了本分支，激活该环境后运行下面的命令即可离线补齐 LH 依赖。pip 从本地 `wheels/` 读取两个包并核验 SHA-256。
+如果已经按 JiuwenSwarm 的常规流程安装本分支，可从仓库离线安装 `pathspec`。pip 会核验该文件的 SHA-256。
 
 ```bash
 python -m pip install -r jiuwenswarm/lh/requirements.txt
@@ -94,7 +94,7 @@ python -m pip install -r jiuwenswarm/lh/requirements.txt
 
 ## 从单个 WorkSwarm wheel 安装
 
-`uv build` 生成的 WorkSwarm wheel 和源码发行包都包含 LH 的依赖 wheel。在已有 JiuwenSwarm 基础依赖的环境中，只需拿到主 wheel。在它所在目录执行下列命令。其他版本请替换示例文件名。
+`uv build` 生成的 WorkSwarm wheel 和源码发行包均包含 WorkRuntime 的 Python 文件、角色配置和仪表盘资源。如果已有 JiuwenSwarm 基础依赖，下面的命令可用单个 WorkSwarm wheel 完成离线安装。解包步骤为 pip 提供内附的 `pathspec`。
 
 ```bash
 python -m zipfile -e workswarm-0.2.5b1-py3-none-any.whl unpacked
@@ -103,4 +103,4 @@ python -m pip install --no-index --no-deps --force-reinstall ./workswarm-0.2.5b1
 jiuwenswarm-process --lh --help
 ```
 
-`SOURCE.json` 记录本版共享控制器和三个依赖 wheel 的来源及哈希。历史 Campaign 使用另一个 PACT Core，放在 `wheels/legacy/` 中，需另建环境安装。[Campaign 安装说明](../long_horizon/README.md)
+从旧的 `python -m jiuwenswarm.long_horizon` 迁移时，用 `jiuwenswarm-process --lh --workflow suite --task task.md --cwd /path/to/repo` 启动新 Work。运行原始任务流程时将 `suite` 改为 `benchmark`。[Core 版本、来源和源码校验值](SOURCE.json)

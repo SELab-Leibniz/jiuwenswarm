@@ -3380,14 +3380,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pact-core"
-version = "0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1"
-source = { path = "jiuwenswarm/lh/wheels/pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl" }
-wheels = [
-    { filename = "pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl", hash = "sha256:190ea348e1897c76159a65dd6e604cfb1e63a9fca5dd0776c092420b5675611f" },
-]
-
-[[package]]
 name = "pandas"
 version = "3.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -6058,7 +6050,6 @@ harmony = [
     { name = "wecom-aibot-sdk" },
 ]
 lh = [
-    { name = "pact-core" },
     { name = "pathspec" },
 ]
 ssh = [
@@ -6179,7 +6170,6 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'harmony'", specifier = ">=1.28.0" },
     { name = "opentelemetry-sdk", specifier = ">=1.28.0,<1.42" },
     { name = "opentelemetry-sdk", marker = "extra == 'harmony'", specifier = ">=1.28.0" },
-    { name = "pact-core", marker = "extra == 'lh'", path = "jiuwenswarm/lh/wheels/pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl" },
     { name = "pathspec", marker = "extra == 'lh'", specifier = "==1.1.1" },
     { name = "pgvector", specifier = ">=0.4.2,<0.5" },
     { name = "pgvector", marker = "extra == 'harmony'", specifier = ">=0.4.2" },

@@ -552,7 +552,7 @@ async def test_action_order_evidence_reaches_native_generation_and_review(
 
 
 @pytest.mark.asyncio
-async def test_public_spec_shim_and_registered_check_use_separate_checkpoints(
+async def test_registered_checks_bind_detached_runtime_and_review_instructions(
     tmp_path, git_repo_factory, shipping_public_model, monkeypatch
 ):
     from jiuwenswarm.long_horizon.clarification import capture_workspace
@@ -575,25 +575,17 @@ async def test_public_spec_shim_and_registered_check_use_separate_checkpoints(
     criteria = criterion_set(1)
     await model.generate_public_verification("task", acceptance_criteria=criteria)
     assert len(prompts) == 4
-    assert all(
-        "JIUWENSWARM_PACT_SOURCE_WORKSPACE" in prompt and "CHRYS_PACT_SOURCE_WORKSPACE" not in prompt
-        for prompt in prompts
-    )
-    model.public_spec_shim = False
+    assert all("registered checks run in the detached candidate checkout" in prompt for prompt in prompts)
+    assert all("JIUWENSWARM_PACT_SOURCE_WORKSPACE" not in prompt for prompt in prompts)
     await model.generate_public_verification("task", acceptance_criteria=criteria)
-    assert len(prompts) == 8
-    assert all("registered checks run in the detached candidate checkout" in prompt for prompt in prompts[4:])
-    await model.generate_public_verification("task", acceptance_criteria=criteria)
-    assert len(prompts) == 8
-    records = list((model.output_dir / "public-verification-checkpoints").glob("*/*.json"))
-    assert len({json.loads(path.read_text())["identity"]["prompt_sha256"] for path in records}) == 2
+    assert len(prompts) == 4
     monkeypatch.setattr(
         shipping_public_model,
         "PUBLIC_VERIFICATION_REVIEW_INSTRUCTIONS",
         shipping_public_model.PUBLIC_VERIFICATION_REVIEW_INSTRUCTIONS + "\nAudit revised evidence.",
     )
     await model.generate_public_verification("task", acceptance_criteria=criteria)
-    assert len(prompts) == 12
+    assert len(prompts) == 8
     records = list((model.output_dir / "public-verification-checkpoints").glob("*/*.json"))
     assert len({json.loads(path.read_text())["identity"]["public_check_instructions_sha256"] for path in records}) == 2
 
@@ -727,16 +719,15 @@ def test_only_explicit_unsupported_shell_workspace_preconditions_are_rejected(sh
     guard = ': "${' + variable + ':?required for provenance}"'
     shell = "bash <<'CHECK'\nset -eu\n" + guard + "\nCHECK"
     with pytest.raises(ValueError, match="verification runtime does not supply"):
-        validate(shell, public_spec_shim=False)
-    validate(shell, public_spec_shim=True)
+        validate(shell)
     for prior in ["cat <<'FIX'\nfixture\nFIX", "# Example << data"]:
         with pytest.raises(ValueError, match="verification runtime does not supply"):
-            validate(prior + "\n" + guard, public_spec_shim=False)
+            validate(prior + "\n" + guard)
     for prior in [variable + "=candidate env >/dev/null", variable + "=candidate\nunset " + variable]:
         with pytest.raises(ValueError, match="verification runtime does not supply"):
-            validate(prior + "\n" + guard, public_spec_shim=False)
+            validate(prior + "\n" + guard)
     with pytest.raises(ValueError, match="CHRYS_PACT_SOURCE_WORKSPACE"):
-        validate(guard.replace("JIUWENSWARM", "CHRYS"), public_spec_shim=True)
+        validate(guard.replace("JIUWENSWARM", "CHRYS"))
     for text in [
         'test -z "${' + variable + ':-}"',
         "cat <<'DATA'\n" + guard + "\nDATA",
@@ -746,7 +737,7 @@ def test_only_explicit_unsupported_shell_workspace_preconditions_are_rejected(sh
         'if [ -n "${' + variable + ':-}" ]; then\n' + guard + '\nfi\ntest -n "fallback"',
         "export " + variable + "=fixture\n" + guard,
     ]:
-        validate(text, public_spec_shim=False)
+        validate(text)
 
 
 def test_required_nonempty_alias_uses_the_active_workspace_capability(shipping_public_model):
@@ -761,23 +752,21 @@ def test_required_nonempty_alias_uses_the_active_workspace_capability(shipping_p
     alias = 'src=${JIUWENSWARM_PACT_SOURCE_WORKSPACE:-}\n'
     require = '[ -n "$src" ] || { echo "missing origin" >&2; exit 1; }'
     with pytest.raises(ValueError, match="requires JIUWENSWARM_PACT_SOURCE_WORKSPACE"):
-        validate(prefix + alias + require, public_spec_shim=False)
-    validate(prefix + alias + require, public_spec_shim=True)
-    for shim in (False, True):
-        missing = alias.replace("JIUWENSWARM", "CHRYS")
-        with pytest.raises(ValueError, match="requires CHRYS_PACT_SOURCE_WORKSPACE"):
-            validate(prefix + missing + 'second="$src"\ntest -n "$second" || exit 1', public_spec_shim=shim)
-        for valid in (
-            missing + 'src="$PWD"\n' + require,
-            'export CHRYS_PACT_SOURCE_WORKSPACE="$PWD"\n' + missing + require,
-            'src="${CHRYS_PACT_SOURCE_WORKSPACE:-$PWD}"\n' + require,
-            missing + 'if [ -n "$src" ]; then\n  echo "inspect refs"\nfi\ngit rev-parse HEAD',
-            missing + 'src=$(choose_workspace)\n' + require,
-            "choose_workspace && exit 0\n" + missing + require,
-            missing + '[ -n "$src" ] || src="$PWD"\n' + require,
-            'SECONDS=${CHRYS_PACT_SOURCE_WORKSPACE:-}\ntest -n "$SECONDS" || exit 1',
-        ):
-            validate(prefix + valid, public_spec_shim=shim)
+        validate(prefix + alias + require)
+    missing = alias.replace("JIUWENSWARM", "CHRYS")
+    with pytest.raises(ValueError, match="requires CHRYS_PACT_SOURCE_WORKSPACE"):
+        validate(prefix + missing + 'second="$src"\ntest -n "$second" || exit 1')
+    for valid in (
+        missing + 'src="$PWD"\n' + require,
+        'export CHRYS_PACT_SOURCE_WORKSPACE="$PWD"\n' + missing + require,
+        'src="${CHRYS_PACT_SOURCE_WORKSPACE:-$PWD}"\n' + require,
+        missing + 'if [ -n "$src" ]; then\n  echo "inspect refs"\nfi\ngit rev-parse HEAD',
+        missing + 'src=$(choose_workspace)\n' + require,
+        "choose_workspace && exit 0\n" + missing + require,
+        missing + '[ -n "$src" ] || src="$PWD"\n' + require,
+        'SECONDS=${CHRYS_PACT_SOURCE_WORKSPACE:-}\ntest -n "$SECONDS" || exit 1',
+    ):
+        validate(prefix + valid)
 
 
 def test_attached_head_fallback_depends_on_the_probed_checkout(shipping_public_model):
@@ -789,10 +778,9 @@ def test_attached_head_fallback_depends_on_the_probed_checkout(shipping_public_m
     )
     current = 'probe="$PWD"\n' + check
     with pytest.raises(ValueError, match="CHRYS_PACT_SOURCE_WORKSPACE"):
-        validate(current, public_spec_shim=False)
+        validate(current)
     for prefix in ['probe="/primary"', 'probe="$PWD"\nprobe="/primary"', 'export GIT_DIR=/primary/.git\nprobe="$PWD"']:
-        validate(prefix + "\n" + check, public_spec_shim=False)
-    validate(current, public_spec_shim=True)
+        validate(prefix + "\n" + check)
 
 
 @pytest.mark.asyncio
@@ -1384,7 +1372,7 @@ async def test_bounded_contract_plan_timeout_degrades_before_public_review(monke
 
 @pytest.mark.asyncio
 async def test_legacy_contract_plan_failure_degrades_before_public_review(monkeypatch):
-    from pact_core.runtime import RuntimeContractError
+    from jiuwenswarm.pact_core.runtime import RuntimeContractError
 
     from jiuwenswarm.lh.suite import _prepare_suite_legacy
 

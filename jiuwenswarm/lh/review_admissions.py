@@ -29,8 +29,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
-from pact_core.artifacts import write_json_atomic
-from pact_core.runtime import RuntimeStateError
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.runtime import RuntimeStateError
 
 SCHEMA_V1 = "long-horizon/review-admissions/v1"
 SCHEMA = "long-horizon/review-admissions/v2"

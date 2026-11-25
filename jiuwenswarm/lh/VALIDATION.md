@@ -1,6 +1,24 @@
 # Suite synchronization validation
 
-## 2026-11-25 · Offline LH installation
+## Source-based WorkRuntime
+
+Both workflows import `jiuwenswarm.pact_core`. Run the workflow regressions from a
+fresh checkout with the project's base and test dependencies installed:
+
+```sh
+python -m pip install -r jiuwenswarm/lh/requirements.txt
+python -m pytest -q -o addopts='' --confcutdir=tests/lh tests/lh/test_pact_core_sources.py \
+  tests/lh/test_suite_flow.py::test_shared_suite_restores_p1_planning_recall_and_localization_before_review \
+  tests/lh/test_portable_flow.py::test_third_agent_runs_same_controller_without_native_packages
+python -m pytest -q -o addopts='' --confcutdir=tests/long_horizon tests/long_horizon/test_campaign_migration.py \
+  tests/long_horizon/test_original_task_benchmark.py::test_real_core_original_task_p0_clarification_and_sealed_latest_candidate
+```
+
+The two workflow cases run real WorkRuntime operations on temporary Git repositories
+with scripted roles and check the exported candidate and delivery. The native bridge
+case separately checks that the original-task adapter seals its latest candidate.
+
+## Historical wheel installation at `6a6e643e2` (2026-11-25)
 
 The source distribution and the WorkSwarm wheel built from it contain the same
 three pinned artifacts. Both PACT wheels match their respective source Git

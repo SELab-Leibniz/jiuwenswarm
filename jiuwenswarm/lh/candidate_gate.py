@@ -13,9 +13,9 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
 
-from pact_core.artifacts import write_json_atomic
-from pact_core.runtime import RuntimeStateError
-from pact_core.runtime.types import CandidateRef, VerificationEvidence
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.runtime import RuntimeStateError
+from jiuwenswarm.pact_core.runtime.types import CandidateRef, VerificationEvidence
 
 from .capacity import DEFAULT_CAPACITY_SCALE, capacity_scale, scaled
 from .check_outputs import read_check_outputs

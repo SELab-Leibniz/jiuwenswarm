@@ -6,9 +6,9 @@ import sys
 from pathlib import Path
 
 import pytest
-from pact_core.benchmark.budget import BenchBudget
-from pact_core.benchmark.types import BenchConfig
-from pact_core.schemas import TurnRequest
+from jiuwenswarm.pact_core.benchmark.budget import BenchBudget
+from jiuwenswarm.pact_core.benchmark.types import BenchConfig
+from jiuwenswarm.pact_core.schemas import TurnRequest
 
 from jiuwenswarm.lh.plugins.transport_recovery import RECOVERY_ADAPTER, RecoveringJiuwenWorker, stream_failure
 

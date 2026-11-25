@@ -10,17 +10,17 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pact_core.artifacts import read_json, write_json_atomic
-from pact_core.benchmark.types import BenchConfig
-from pact_core.kernel import default_worktree_root
-from pact_core.runtime import RuntimeContractError, WorkSnapshot
-from pact_core.runtime.export import ExportReceipt, output_directory
+from jiuwenswarm.pact_core.artifacts import read_json, write_json_atomic
+from jiuwenswarm.pact_core.benchmark.types import BenchConfig
+from jiuwenswarm.pact_core.kernel import default_worktree_root
+from jiuwenswarm.pact_core.runtime import RuntimeContractError, WorkSnapshot
+from jiuwenswarm.pact_core.runtime.export import ExportReceipt, output_directory
 
 from jiuwenswarm.long_horizon.pact.configuration import DefaultRunOptions
 
 if TYPE_CHECKING:
-    from pact_core.benchmark.types import BenchResult
-    from pact_core.runtime.export import LatestCandidateExport
+    from jiuwenswarm.pact_core.benchmark.types import BenchResult
+    from jiuwenswarm.pact_core.runtime.export import LatestCandidateExport
 
 _INPUT_SCHEMA = "jiuwenswarm-pact/benchmark-input/v1"
 _RESULT_SCHEMA = "jiuwenswarm-pact/benchmark-result/v1"

@@ -8,29 +8,21 @@ The newer native write guards, cache isolation and retry policy in this branch a
 
 The companion controller is https://github.com/SELab-Leibniz/long-horizon-controller/pull/2. Its main tree includes the pinned PACT wheel and reviewed `vendor/jiuwen-nonstream-guard` companion: absolute read-file line numbers, nonstream task-loop handling, strict complete-JSON validation, response closure and metadata-only diagnostics. These patches target an exact external SDK baseline; they remain an explicitly selected overlay for a new frozen deployment, rather than silently replacing an installed SDK or changing existing attempts.
 
-The historical `pact/campaign.py` adapter uses the CampaignControlPlane API from
-the Chrys `040a1156` Core wheel. The current suite and original-task benchmark
-use the WorkRuntime API from the `+bytes1.deadline1.turns1.checklifecycle1` wheel.
-Both wheels ship in this checkout. Each environment selects one Core.
-
-For `test_pact.py` and `test_controller.py`, activate a separate Python 3.12
-virtual environment and run the following from the checkout.
+The suite and original-task benchmark import the same [WorkRuntime source](../../jiuwenswarm/pact_core/) and share the native Jiuwen execution and evidence adapters. The old standalone `python -m jiuwenswarm.long_horizon` command now prints migration instructions. Start a new Work from a Git checkout with either command.
 
 ```bash
-python -m pip install ".[test]"
-python -m pip install --no-index jiuwenswarm/lh/wheels/pathspec-1.1.1-py3-none-any.whl jiuwenswarm/lh/wheels/legacy/pact_core-0.2.0.dev0-py3-none-any.whl
-python -m pytest --confcutdir=tests/long_horizon -o addopts='' tests/long_horizon/test_pact.py tests/long_horizon/test_controller.py
+uv sync --frozen --extra lh
+uv run --no-sync jiuwenswarm-process --lh --workflow suite --task task.md --cwd /path/to/repo
+uv run --no-sync jiuwenswarm-process --lh --workflow benchmark --task task.md --cwd /path/to/repo
 ```
 
-For the modern suite, `uv sync --frozen --extra lh` in a separate checkout or
-environment installs the current Core and the default development tools.
 Linux DAC controls exercise kernel isolation on the pinned Linux image.
 
 ## `--lh` entry and MemGraph
 
 `jiuwenswarm --lh ...`, `jiuwenswarm-process --lh ...` and `python -m jiuwenswarm.lh`
 run the shared controller and native Jiuwen plugin embedded under `jiuwenswarm/lh/`.
-The controller revision and the required PACT Core wheel are pinned in
+The controller revision, PACT Core source directory and file hashes are recorded in
 [`SOURCE.json`](../../jiuwenswarm/lh/SOURCE.json). See the
 [suite usage and installation guide](../../jiuwenswarm/lh/README.en.md).
 

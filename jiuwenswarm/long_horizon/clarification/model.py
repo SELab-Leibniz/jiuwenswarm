@@ -123,21 +123,12 @@ class JiuwenClarificationModel(ClarificationModelRunner):
     is additionally bound to current worker configuration and launcher bytes.
     """
 
-    # Standalone Jiuwen binds generated commands through verify_shim --public-spec.
-    # The controller selects its direct registration path in JiuwenPlugin.default_runner.
-    public_spec_shim = True
-
     @property
     def public_check_instructions_sha256(self) -> str:
         return json_digest([PUBLIC_VERIFICATION_INSTRUCTIONS, PUBLIC_VERIFICATION_REVIEW_INSTRUCTIONS])
 
     @property
     def public_check_repository_context(self) -> str:
-        if self.public_spec_shim:
-            return ("\n\nVerification runtime: Jiuwen public-spec shim. "
-                    "For explicitly required branch provenance you may read Git refs and reflogs through "
-                    "JIUWENSWARM_PACT_SOURCE_WORKSPACE. Keep all behavior checks in the candidate checkout. "
-                    "Never modify the primary workspace.")
         return ("\n\nVerification runtime: registered checks run in the detached candidate checkout. "
                 "Use candidate-local Git history and the supplied frozen commit ID. "
                 "No primary workspace path or branch reflog is supplied. If primary branch evidence is "
@@ -579,7 +570,7 @@ class JiuwenClarificationModel(ClarificationModelRunner):
                         validate(value)
                     value.validate_generated_commands()
                     for check in value.checks:
-                        validate_public_workspace_dependencies(check.command, public_spec_shim=self.public_spec_shim)
+                        validate_public_workspace_dependencies(check.command)
                         for path in referenced_public_tests(check.command):
                             if path not in paths:
                                 raise ValueError(f"public test was not inspected with read_file: {path}")

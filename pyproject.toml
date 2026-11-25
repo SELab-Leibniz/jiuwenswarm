@@ -71,7 +71,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-lh = ["pact-core==0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1", "pathspec==1.1.1"]
+lh = ["pathspec==1.1.1"]
 # HarmonyOS-compatible reduced dependencies;
 # excludes packages with C extensions or system deps unavailable on HarmonyOS.
 # Usage: pip install workswarm --no-deps, then install each dep in this group manually,
@@ -137,6 +137,7 @@ test = [
 ]
 
 [project.scripts]
+pact = "jiuwenswarm.pact_core.cli:main"
 jiuwenswarm = "jiuwenswarm.channels.cli.main:main"
 jiuwenswarm-process = "jiuwenswarm.channels.process_cli.main:main"
 jiuwenswarm-app = "jiuwenswarm.app:main"
@@ -167,7 +168,9 @@ namespaces = false
 
 [tool.setuptools.package-data]
 "*" = ["LICENSE"]
-"jiuwenswarm.lh" = ["SOURCE.json", "requirements.txt", "wheels/*.whl", "wheels/legacy/*.whl"]
+"jiuwenswarm.lh" = ["SOURCE.json", "requirements.txt", "wheels/*.whl"]
+"jiuwenswarm.pact_core.adapters" = ["profiles/*.yaml"]
+"jiuwenswarm.pact_core.runtime" = ["dashboard_assets/*"]
 "jiuwenswarm.long_horizon" = ["requirements.lock"]
 jiuwenswarm = [
     "channels/process_cli/protocol/schema.json",
@@ -203,7 +206,6 @@ jiuwenswarm = [
 default-groups = ['dev']
 
 [tool.uv.sources]
-pact-core = { path = "jiuwenswarm/lh/wheels/pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl" }
 workswarm-tui = { path = "./packages/jiuwenswarm-tui" }  # build-config: tui-source
 openjiuwen = { git = "https://gitcode.com/openJiuwen/agent-core.git", rev = "b2fde5eb3172481ca94dbe1145539fc564b487c7" }
 

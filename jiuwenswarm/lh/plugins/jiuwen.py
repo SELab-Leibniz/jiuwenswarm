@@ -9,7 +9,7 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
 
 from ..ports import ClarificationContext, ExecutionBinding, PluginSpec
 from ..reviewer_privilege import ReviewerLaunchPolicy
@@ -106,7 +106,7 @@ class JiuwenPlugin(NativeClarification):
         remaining = context.deadline - time.time()
         if remaining <= 0:
             raise self.artifacts.exhausted("clarification has no remaining admitted trial time")
-        runner = JiuwenClarificationModel(
+        return JiuwenClarificationModel(
             worker=self._worker,
             snapshot=context.snapshot,
             output_dir=context.session_dir / "native-attempts" / uuid4().hex,
@@ -114,6 +114,4 @@ class JiuwenPlugin(NativeClarification):
             timeout_seconds=remaining,
             checkpoint_identity={"scope": "own-work-stages/v1", "work_scope": str(context.session_dir.absolute())},
         )
-        runner.public_spec_shim = False
-        return runner
 

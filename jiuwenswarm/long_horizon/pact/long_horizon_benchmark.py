@@ -44,17 +44,17 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
-from pact_core.adapters.base import TurnRequest
-from pact_core.artifacts import read_json
-from pact_core.benchmark import review_progress
-from pact_core.benchmark.budget import BenchBudget, BudgetedAdapter, BudgetWindow
-from pact_core.benchmark.driver import BenchDriver
-from pact_core.benchmark.types import BenchConfig, BenchResult
-from pact_core.kernel import default_worktree_root
-from pact_core.prompts import build_runtime_handoff_instructions
-from pact_core.runtime import AcceptancePolicy, RuntimeContractError, RuntimeStateError, WorkRuntime, WorkSnapshot
-from pact_core.runtime.export import ExportReceipt, LatestCandidateExport, verify_export
-from pact_core.runtime.text_plan import read_text_plan
+from jiuwenswarm.pact_core.adapters.base import TurnRequest
+from jiuwenswarm.pact_core.artifacts import read_json
+from jiuwenswarm.pact_core.benchmark import review_progress
+from jiuwenswarm.pact_core.benchmark.budget import BenchBudget, BudgetedAdapter, BudgetWindow
+from jiuwenswarm.pact_core.benchmark.driver import BenchDriver
+from jiuwenswarm.pact_core.benchmark.types import BenchConfig, BenchResult
+from jiuwenswarm.pact_core.kernel import default_worktree_root
+from jiuwenswarm.pact_core.prompts import build_runtime_handoff_instructions
+from jiuwenswarm.pact_core.runtime import AcceptancePolicy, RuntimeContractError, RuntimeStateError, WorkRuntime, WorkSnapshot
+from jiuwenswarm.pact_core.runtime.export import ExportReceipt, LatestCandidateExport, verify_export
+from jiuwenswarm.pact_core.runtime.text_plan import read_text_plan
 
 from jiuwenswarm.long_horizon.pact.benchmark import BenchmarkBinding, record_benchmark_result
 from jiuwenswarm.long_horizon.pact.benchmark_native import record_work_budget

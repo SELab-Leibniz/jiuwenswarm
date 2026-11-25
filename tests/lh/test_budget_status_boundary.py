@@ -11,12 +11,12 @@ import time
 from pathlib import Path
 
 import pytest
-from pact_core.adapters.base import TurnRequest
-from pact_core.benchmark.budget import BenchBudget
-from pact_core.benchmark.budget import BudgetedAdapter as CoreBudgetedAdapter
-from pact_core.benchmark.types import BenchConfig
-from pact_core.runtime import RuntimeContractError
-from pact_core.schemas import TurnResult
+from jiuwenswarm.pact_core.adapters.base import TurnRequest
+from jiuwenswarm.pact_core.benchmark.budget import BenchBudget
+from jiuwenswarm.pact_core.benchmark.budget import BudgetedAdapter as CoreBudgetedAdapter
+from jiuwenswarm.pact_core.benchmark.types import BenchConfig
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.schemas import TurnResult
 
 from jiuwenswarm.lh.budget_boundary import BudgetedAdapter, LedgerStatusBoundary
 

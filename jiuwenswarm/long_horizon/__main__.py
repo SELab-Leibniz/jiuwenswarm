@@ -1,4 +1,4 @@
-"""Run the fixed workflow with ``python -m jiuwenswarm.long_horizon``."""
+"""Show the migration command for the former standalone Campaign CLI."""
 
 from .controller import main
 

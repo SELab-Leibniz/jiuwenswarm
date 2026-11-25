@@ -12,11 +12,11 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from pact_core.artifacts import read_json, write_json_atomic
-from pact_core.runtime import RuntimeContractError
-from pact_core.runtime.export import verify_export
-from pact_core.runtime.store import build_campaign_paths
-from pact_core.schemas import TurnRequest
+from jiuwenswarm.pact_core.artifacts import read_json, write_json_atomic
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.runtime.export import verify_export
+from jiuwenswarm.pact_core.runtime.store import build_campaign_paths
+from jiuwenswarm.pact_core.schemas import TurnRequest
 
 from .checkpoint_guard import sha256_file
 from .evidence import contained, contained_in_roots, sha256_bytes

@@ -7,10 +7,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from pact_core.adapters.base import TurnRequest
-from pact_core.benchmark.budget import BenchBudget, BudgetedAdapter
-from pact_core.benchmark.types import BenchConfig
-from pact_core.runtime import RuntimeContractError
+from jiuwenswarm.pact_core.adapters.base import TurnRequest
+from jiuwenswarm.pact_core.benchmark.budget import BenchBudget, BudgetedAdapter
+from jiuwenswarm.pact_core.benchmark.types import BenchConfig
+from jiuwenswarm.pact_core.runtime import RuntimeContractError
 
 from jiuwenswarm.lh.budget_origin import create_budget, remaining_seconds, validate_origin
 

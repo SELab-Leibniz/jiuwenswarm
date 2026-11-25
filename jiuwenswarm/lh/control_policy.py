@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from pact_core.artifacts import write_json_atomic
+from jiuwenswarm.pact_core.artifacts import write_json_atomic
 
 from .review_governance import acceptance_reserve
 
