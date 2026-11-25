@@ -31,8 +31,16 @@ receipt 和传输地址，启动前及每次调用均检查 release 身份。工
 
 ## 安装与执行
 
-使用 Python 3.12.11 和仓库原 `uv.lock` 安装 JiuwenSwarm，再安装外部提供且
-经 SHA-256 校验的 PACT wheel。依赖来源见 [PROVENANCE.md](PROVENANCE.md)。
+此历史 Campaign 入口使用 PACT Core `0.2.0.dev0`。在单独的 Python 3.12
+虚拟环境中，从本分支根目录安装 JiuwenSwarm 和配套 wheel。
+
+```bash
+python -m pip install .
+python -m pip install --no-index jiuwenswarm/lh/wheels/pathspec-1.1.1-py3-none-any.whl jiuwenswarm/lh/wheels/legacy/pact_core-0.2.0.dev0-py3-none-any.whl
+```
+
+现代 `--lh` 入口使用 [LH 安装说明](../lh/README.md) 中的环境。两版 Core 的来源见
+[PROVENANCE.md](PROVENANCE.md)。
 正式评测由私有 [jiuwenswarm-bench](https://github.com/wzh4464/jiuwenswarm-bench)
 构建内容寻址镜像、注入只含环境引用的模型配置并固定全部输入。
 

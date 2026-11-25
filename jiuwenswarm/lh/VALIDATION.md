@@ -1,5 +1,26 @@
 # Suite synchronization validation
 
+## 2026-11-25 · Offline LH installation
+
+The source distribution and the WorkSwarm wheel built from it contain the same
+three pinned artifacts. Both PACT wheels match their respective source Git
+blobs byte for byte. The pathspec wheel matches the public hash in the base
+branch's lockfile. All 108 embedded Python files matched `SOURCE.json` in both
+archives.
+
+On macOS with Python 3.13.3, two isolated environments started with the existing
+JiuwenSwarm base dependencies. Each installed WorkSwarm, pathspec, and its PACT
+variant from the main wheel using pip with indexes and cache disabled. Both LH
+console entrypoints and the historical Campaign module produced their help
+output. Appending bytes to a copy of the pathspec wheel caused pip to reject
+that install at the hash check.
+
+The installed suite passed 53 targeted packaging, CLI, run-JSON, portable
+workflow and suite tests with scripted roles. The separate Campaign environment
+passed all 42 tests in `test_pact.py` and `test_controller.py`, including 16
+subtests. The original dependency declarations and all 318 existing dependency
+lock entries matched `develop`.
+
 ## 2026-11-25 · Controller `732f364`
 
 The shared controller and role ports match long-horizon-controller

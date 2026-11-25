@@ -8,9 +8,23 @@ The newer native write guards, cache isolation and retry policy in this branch a
 
 The companion controller is https://github.com/SELab-Leibniz/long-horizon-controller/pull/2. Its main tree includes the pinned PACT wheel and reviewed `vendor/jiuwen-nonstream-guard` companion: absolute read-file line numbers, nonstream task-loop handling, strict complete-JSON validation, response closure and metadata-only diagnostics. These patches target an exact external SDK baseline; they remain an explicitly selected overlay for a new frozen deployment, rather than silently replacing an installed SDK or changing existing attempts.
 
-The historical `pact/campaign.py` adapter and `test_pact.py` / `test_controller.py` use the CampaignControlPlane API from the Chrys `040a1156` companion wheel. The original-task benchmark uses the newer WorkRuntime API and the controller's `+bytes1.deadline1.turns1` wheel. These are separate dependency contracts: do not co-install them or treat the modern wheel as a drop-in dependency for the legacy campaign.
+The historical `pact/campaign.py` adapter uses the CampaignControlPlane API from
+the Chrys `040a1156` Core wheel. The current suite and original-task benchmark
+use the WorkRuntime API from the `+bytes1.deadline1.turns1.checklifecycle1` wheel.
+Both wheels ship in this checkout. Each environment selects one Core.
 
-Run the offline matrix in separate Python 3.12 environments. Both need pytest, pytest-asyncio, pydantic, PyYAML, pathspec, httpx, loguru, portalocker and MCP. Run `test_pact.py` and `test_controller.py` with the legacy wheel. Run the remainder of `tests/long_horizon` with the modern wheel, using `--confcutdir=tests/long_horizon -o addopts=''`. Linux DAC tests require the pinned Linux image; the portable file-audit controls stub privilege setup and use one sentinel spelling per namespace for case-insensitive filesystems. They do not establish kernel isolation or replace the Linux case-variant checks. Production setup still uses the normal repository installation contract. A unit-test pass or main merge is not an independent benchmark grade.
+For `test_pact.py` and `test_controller.py`, activate a separate Python 3.12
+virtual environment and run the following from the checkout.
+
+```bash
+python -m pip install ".[test]"
+python -m pip install --no-index jiuwenswarm/lh/wheels/pathspec-1.1.1-py3-none-any.whl jiuwenswarm/lh/wheels/legacy/pact_core-0.2.0.dev0-py3-none-any.whl
+python -m pytest --confcutdir=tests/long_horizon -o addopts='' tests/long_horizon/test_pact.py tests/long_horizon/test_controller.py
+```
+
+For the modern suite, `uv sync --frozen --extra lh` in a separate checkout or
+environment installs the current Core and the default development tools.
+Linux DAC controls exercise kernel isolation on the pinned Linux image.
 
 ## `--lh` entry and MemGraph
 

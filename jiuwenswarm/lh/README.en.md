@@ -59,27 +59,30 @@ MemGraph remains disabled by default. Controller retrieval requires both
 `MEMGRAPH_CALL_AUDIT_PATH`. The native transport retry rail and opt-in public-test
 write guard are retained.
 
-## PACT Core dependency
+## Install from the PR
 
-Install the external wheel from the pinned controller revision's `vendor/`
-directory after verifying its SHA256:
-
-```text
-pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl
-190ea348e1897c76159a65dd6e604cfb1e63a9fca5dd0776c092420b5675611f
-```
+Use Python 3.11–3.13 in the checkout. The `lh` extra selects the suite's PACT Core and pathspec dependencies.
 
 ```bash
-uv pip install /path/to/pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl
+uv sync --frozen --extra lh
+uv run --no-sync jiuwenswarm-process --lh --help
 ```
 
-The wheel is supplied separately and is imported only on the LH path. The older
-`turns1` wheel lacks the check-lifecycle interfaces required by this suite.
-
-## Install pathspec offline
-
-The LH snapshot filter uses `pathspec==1.1.1`. The checkout, WorkSwarm wheel and source distribution include the original PyPI wheel with its MPL 2.0 license. Run the following command from the checkout to verify its SHA-256 digest and install it.
+If this branch is already installed through the usual JiuwenSwarm setup, activate that environment and add the LH dependencies offline. pip reads both wheels from the bundled directory and verifies their SHA-256 digests.
 
 ```bash
-python -m pip install --no-index --find-links jiuwenswarm/lh/wheels --require-hashes -r jiuwenswarm/long_horizon/requirements.lock
+python -m pip install -r jiuwenswarm/lh/requirements.txt
 ```
+
+## Install from a single WorkSwarm wheel
+
+Both the wheel and the source distribution produced by `uv build` include the LH dependency wheels. To install using only the main wheel in an environment that already has the JiuwenSwarm base dependencies, run the following in the wheel's directory, substituting the filename for your build.
+
+```bash
+python -m zipfile -e workswarm-0.2.5b1-py3-none-any.whl unpacked
+python -m pip install -r unpacked/jiuwenswarm/lh/requirements.txt
+python -m pip install --no-index --no-deps --force-reinstall ./workswarm-0.2.5b1-py3-none-any.whl
+jiuwenswarm-process --lh --help
+```
+
+`SOURCE.json` records the controller revision and the origins and hashes of all three wheels. The historical Campaign uses a different PACT Core, bundled under `wheels/legacy/` for installation in a separate environment. [Campaign installation guide](../../docs/en/LongHorizonIntegration.md)

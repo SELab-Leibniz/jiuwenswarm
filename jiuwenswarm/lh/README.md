@@ -77,24 +77,30 @@ Linux root 环境下可通过 `--reviewer-uid` / `--reviewer-gid` 配置专用 R
   （以及调用 journal `MEMGRAPH_CALL_AUDIT_PATH`）时，才注册
   `jiuwenswarm.long_horizon.memgraph_mcp` 只读 MCP。
 
-## 依赖
+## 从 PR 安装
 
-控制器需要 PACT Core `pact-core==0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1`。
-wheel 位于上述固定控制器提交的 `vendor/`：
-
-```text
-pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl
-SHA256: 190ea348e1897c76159a65dd6e604cfb1e63a9fca5dd0776c092420b5675611f
-```
-
-安装前按 SHA256 核对该 wheel，再运行 `uv pip install /path/to/the/wheel.whl`。
-它不提交到本仓库，也不加入默认安装；只有使用 `--lh` 时才导入。
-旧版 `turns1` wheel 缺少本次 suite 使用的检查生命周期接口。
-
-## 离线安装 pathspec
-
-LH 的快照过滤器使用 `pathspec==1.1.1`。仓库、WorkSwarm wheel 和源码发行包均内置 PyPI 的原始 wheel 及其 MPL 2.0 许可证。从本分支根目录执行以下命令即可校验 SHA-256 并安装。
+在本分支根目录使用 Python 3.11–3.13。启用 `lh` extra 会安装当前 suite 所需的 PACT Core 和 pathspec。
 
 ```bash
-python -m pip install --no-index --find-links jiuwenswarm/lh/wheels --require-hashes -r jiuwenswarm/long_horizon/requirements.lock
+uv sync --frozen --extra lh
+uv run --no-sync jiuwenswarm-process --lh --help
 ```
+
+如果已经按 JiuwenSwarm 的常规流程安装了本分支，激活该环境后运行下面的命令即可离线补齐 LH 依赖。pip 从本地 `wheels/` 读取两个包并核验 SHA-256。
+
+```bash
+python -m pip install -r jiuwenswarm/lh/requirements.txt
+```
+
+## 从单个 WorkSwarm wheel 安装
+
+`uv build` 生成的 WorkSwarm wheel 和源码发行包都包含 LH 的依赖 wheel。在已有 JiuwenSwarm 基础依赖的环境中，只需拿到主 wheel。在它所在目录执行下列命令。其他版本请替换示例文件名。
+
+```bash
+python -m zipfile -e workswarm-0.2.5b1-py3-none-any.whl unpacked
+python -m pip install -r unpacked/jiuwenswarm/lh/requirements.txt
+python -m pip install --no-index --no-deps --force-reinstall ./workswarm-0.2.5b1-py3-none-any.whl
+jiuwenswarm-process --lh --help
+```
+
+`SOURCE.json` 记录本版共享控制器和三个依赖 wheel 的来源及哈希。历史 Campaign 使用另一个 PACT Core，放在 `wheels/legacy/` 中，需另建环境安装。[Campaign 安装说明](../long_horizon/README.md)

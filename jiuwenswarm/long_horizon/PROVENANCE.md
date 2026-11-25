@@ -13,8 +13,7 @@ public-verifier investigation and tool-free synthesis, bounded artifact repair,
 reviewed-criterion checkpoints, public command receipts and explicit P0 recovery.
 Original copyright notices and the original revision of unchanged adapted files
 are retained.
-This private integration does not grant a new license to upstream code. There is
-no Chrys solver or model client in the new execution path: all inference stages
+Upstream components keep their original licensing terms. All inference stages
 use the pinned JiuwenSwarm process interface.
 
 The suite adds an explicit opt-in native Code tool policy for tool-free synthesis.
@@ -23,10 +22,10 @@ versioned integration; the resulting agent is based on the requested upstream
 commit, not byte-identical to it. Unit checks and real native HTTP probes must be
 reported separately in the benchmark validation record.
 
-PACT's independent control plane remains `pact-core==0.2.0.dev0`, from source
-`aa9073bed4970481a035755990e1682e9de486d8`; its externally supplied wheel has SHA-256
+The historical Campaign uses `pact-core==0.2.0.dev0` from source
+`aa9073bed4970481a035755990e1682e9de486d8`. Its wheel is bundled in
+`../lh/wheels/legacy/` with SHA-256
 `4f08b2b6ae258823e0e1c824380f58579a6e4174d02b3b1338a32ee9eb76ab2a`.
-The wheel, runtime outputs and credentials are not committed here.
 
 The snapshot adapter adds `pathspec==1.1.1` as an explicit runtime dependency in
 `requirements.lock`, with the same wheel hash already present in upstream's
@@ -74,12 +73,17 @@ names and disabled default, native transport retry rail, and opt-in public-test
 write guard. The native SDK and both ordinary CLI entrypoints remain selected
 by the JiuwenSwarm checkout.
 
-This suite requires the externally supplied
+This suite ships the original
 `pact-core==0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1` wheel, SHA-256
 `190ea348e1897c76159a65dd6e604cfb1e63a9fca5dd0776c092420b5675611f`.
-Earlier wheel records below describe historical treatments. Source and local
-adaptations for this sync are recorded in `../lh/SOURCE.json`.
+The historical Campaign wheel from Chrys `040a1156`, SHA-256
+`4f08b2b6ae258823e0e1c824380f58579a6e4174d02b3b1338a32ee9eb76ab2a`, ships
+under `../lh/wheels/legacy/` for installation in a separate environment.
+The other PACT digests in this history identify earlier benchmark treatments.
 
+The bundled pathspec wheel is the original PyPI artifact pinned by the snapshot
+adapter. The artifact paths, hashes and origins are listed in
+[`SOURCE.json`](../lh/SOURCE.json).
 
 ## Caller-owned repeat-cycle stop (2026-09-29)
 

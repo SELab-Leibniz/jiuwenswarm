@@ -7,7 +7,8 @@
     "version": "0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1",
     "wheel": "vendor/pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl",
     "sha256": "190ea348e1897c76159a65dd6e604cfb1e63a9fca5dd0776c092420b5675611f",
-    "installation": "external; opt-in --lh only"
+    "installation": "bundled local wheel selected by the lh extra or requirements.txt",
+    "bundled_wheel": "jiuwenswarm/lh/wheels/pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl"
   },
   "adaptations": [
     "Relocate shared modules to jiuwenswarm.lh while preserving serialized long_horizon keys.",
@@ -22,6 +23,12 @@
       "bundled_wheel": "jiuwenswarm/lh/wheels/pathspec-1.1.1-py3-none-any.whl",
       "sha256": "a00ce642f577bf7f473932318056212bc4f8bfdf53128c78bbd5af0b9b20b189",
       "source": "https://pypi.org/project/pathspec/1.1.1/"
+    },
+    "pact-core-legacy-campaign": {
+      "bundled_wheel": "jiuwenswarm/lh/wheels/legacy/pact_core-0.2.0.dev0-py3-none-any.whl",
+      "sha256": "4f08b2b6ae258823e0e1c824380f58579a6e4174d02b3b1338a32ee9eb76ab2a",
+      "source": "Chrys vendor/wheels/pact_core-0.2.0.dev0-py3-none-any.whl",
+      "revision": "040a11562ebfd2f29aac8971996c6b42fddf295a"
     }
   },
   "files": {
