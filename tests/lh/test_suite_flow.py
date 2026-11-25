@@ -727,3 +727,49 @@ async def test_recoverable_public_review_saves_p0_and_resume_reviews_only_unrevi
     assert review_calls == [("c1", "c2"), ("c2",)]
     assert resumed["budget"]["deadline"] == report["budget"]["deadline"]
     assert [row[0] for row in calls].count("[SUITE_P1_REPAIR]") == 1
+
+
+def test_public_review_retry_basis_tracks_evidence_instead_of_diagnostic_wording(tmp_path, git_repo_factory):
+    from jiuwenswarm.lh.public_review import PublicReviewProgress, recoverable_public_review_error
+
+    value = plugin([])
+    controller = LongHorizonBenchmark(trial(tmp_path, git_repo_factory), plugin=value)
+    state = SimpleNamespace(
+        work_id="work-id",
+        revision=1,
+        candidate=SimpleNamespace(tree="sealed-tree"),
+        user_decisions=[{"choice": "yes"}],
+        advisory={value.spec.progress_key: {"schema": value.spec.progress_schema, "phase": "p0_saved"}},
+    )
+
+    def update_advisory(work_id, *, expected_revision, advisory):
+        assert (work_id, expected_revision) == (state.work_id, state.revision)
+        state.advisory = advisory
+        state.revision += 1
+        return state
+
+    runtime = SimpleNamespace(update_advisory=update_advisory)
+
+    def record(required, completed, detail):
+        progress = PublicReviewProgress(
+            started=True, reason="public_evidence_unavailable", detail=detail,
+            required_criteria=required, completed_criteria=completed,
+        )
+        exc = recoverable_public_review_error(value.artifacts.exhausted, progress)
+        controller._save_public_review_p0(runtime, state, exc)
+        assert controller._invocation.stop_reason == "public_evidence_unavailable"
+        return controller._invocation.public_review_basis_sha256
+
+    basis = record(("inventory", "history"), ("history",), "Missing inventory evidence.")
+    assert basis is not None
+    assert basis == record(("history", "inventory"), ("history",), "Inventory evidence was unavailable.")
+    attempts = state.advisory[value.spec.progress_key]["clarification_attempts"]
+    assert [attempt["recoverable"]["detail"] for attempt in attempts] == [
+        "Missing inventory evidence.",
+        "Inventory evidence was unavailable.",
+    ]
+    assert basis != record(("history", "inventory"), (), "History is missing too.")
+    state.user_decisions = [{"choice": "no"}]
+    assert basis != record(("history", "inventory"), ("history",), "Inventory evidence was unavailable.")
+    state.candidate = None
+    assert record(("history", "inventory"), ("history",), "The candidate is missing.") is None

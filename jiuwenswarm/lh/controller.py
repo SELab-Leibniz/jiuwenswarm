@@ -219,6 +219,26 @@ _PHASES: tuple[Phase, ...] = (
 )
 
 
+def has_saved_external_worker_failure(progress: object) -> bool:
+    """Check for an executed, sealed P0 that recorded its own native failure."""
+    if not isinstance(progress, dict) or progress.get("phase") != "p0_saved":
+        return False
+    initial = progress.get("p0")
+    stages = progress.get("stages")
+    return (
+        isinstance(initial, dict)
+        and initial.get("native_status") == "failed"
+        and initial.get("status") == "output_missing"
+        and initial.get("executed") is True
+        and initial.get("stopped") is None
+        and isinstance(stages, dict)
+        and "p0" in stages
+        and not progress.get("clarification_attempts")
+        and progress.get("draft_recovery_refusals") != 2
+        and "prior_failed_draft" not in progress
+    )
+
+
 @dataclass
 class _NativeTurnRefusalGuard:
     """Restore a native refusal before Core consumes the returned role result."""
@@ -333,6 +353,7 @@ class BenchmarkArguments:
     external_live_workdir: Path | None = None
     external_question_channel: Any = None
     clock: Callable[[], float] = time.time
+    resume_failed_external_draft: bool = False
 
     def __post_init__(self) -> None:
         from .snapshot_resources import SnapshotResources
@@ -495,6 +516,7 @@ class _Invocation:
     stop_reason: str = "not_started"
     failure: dict[str, object] | None = None
     budget_detail: str | None = None
+    public_review_basis_sha256: str | None = None
     p0_ran: bool = False
     clarification_calls: list[str] = field(default_factory=list)
     driver_result: BenchResult | None = None
@@ -545,6 +567,7 @@ class BenchmarkOutcome:
     work_id: str | None
     candidate_available: bool = False
     fixed_window_wait_revision: int | None = None
+    public_review_basis_sha256: str | None = None
 
 
 async def _ignore_update(_update: object) -> None:
@@ -756,6 +779,7 @@ class LongHorizonBenchmark:
                 state.work_id if state is not None else None,
                 state is not None and state.candidate is not None,
                 self._invocation.fixed_window_wait_revision,
+                self._invocation.public_review_basis_sha256,
             )
         publish = asyncio.create_task(asyncio.to_thread(self._publish, runtime, output, frozen))
         try:
@@ -2790,13 +2814,39 @@ class LongHorizonBenchmark:
                 return state, turns
         if self._phase(state) == "p0_started":
             state = self._reconcile_p0(runtime, budget, state)
-        if self._phase(state) == "s0_frozen":
+        phase = self._phase(state)
+        recover = (
+            self._args.resume_failed_external_draft
+            and self._args.work_id == state.work_id
+            and has_saved_external_worker_failure(self._progress(state))
+        )
+        if phase == "s0_frozen" or recover:
             if self._abort.is_set():
                 return state, turns
-            state, ran = self._run_p0(runtime, output, turn_root, budget, window, state)
+            prior_stop_reason = self._invocation.stop_reason
+            state, ran = self._run_p0(runtime, output, turn_root, budget, window, state, recover=recover)
             turns += int(ran)
-            if not ran or self._invocation.failure is not None or self._abort.is_set():
+            if self._invocation.failure is not None or self._abort.is_set():
                 return state, turns
+            if not ran:
+                if not recover:
+                    return state, turns
+                # Leave one opportunity to recover if implementation was refused.
+                # After a second refusal, review the same saved draft normally.
+                refusals = 2 if self._progress(state).get("draft_recovery_refusals") == 1 else 1
+                state = self._advance(runtime, state, "p0_saved", draft_recovery_refusals=refusals)
+                if refusals == 1:
+                    return state, turns
+                self._invocation.stop_reason = prior_stop_reason
+            else:
+                # Leave a structured external failure for an explicit continuation
+                # before spending review budget.
+                saved = self._progress(state).get("p0")
+                if isinstance(saved, dict):
+                    if recover and saved.get("status") != "completed":
+                        return state, turns
+                    if saved.get("status") == "output_missing" and saved.get("native_status") == "failed":
+                        return state, turns
         if self._phase(state) in ("p0_saved", "clarification_started") and "p0" not in self._stages(state):
             # Core recovered a saved P0 whose stage evidence was not yet sealed.
             state = self._seal_p0(runtime, output, turn_root, state)
@@ -2980,6 +3030,10 @@ class LongHorizonBenchmark:
 
     def _reconcile_p0(self, runtime: WorkRuntime, budget: BenchBudget, state: WorkSnapshot) -> WorkSnapshot:
         """After Core recovery, only a never-attempted P0 may run; never replay one."""
+        if "prior_failed_draft" in self._progress(state):
+            # An in-flight recovery has no saved result. Even if its budget
+            # admission is absent, the external side effects are unconfirmed.
+            raise RuntimeStateError("not_auto_resumable: saved draft recovery was interrupted before save")
         calls = cast(list[dict[str, object]], budget.snapshot()["calls"])
         if any(call.get("purpose") == "implementation" for call in calls):
             raise RuntimeStateError(
@@ -2999,6 +3053,8 @@ class LongHorizonBenchmark:
         budget: BenchBudget,
         window: BudgetWindow,
         state: WorkSnapshot,
+        *,
+        recover: bool = False,
     ) -> tuple[WorkSnapshot, bool]:
         deadline = budget.purpose_deadline(window, "implementation")
         if self._phase_policy is not None:
@@ -3012,7 +3068,10 @@ class LongHorizonBenchmark:
             if self._args.external_prompt_verbatim is not None
             else _p0_prompt(state)
         )
-        state = self._advance(runtime, state, "p0_started")
+        prior = {"prior_failed_draft": self._stages(state)["p0"]} if recover else {}
+        # Persist before admission. A crash after admission still takes the
+        # existing fail-closed p0_started reconciliation path.
+        state = self._advance(runtime, state, "p0_started", **prior)
         release_recovered_views((runtime.workspace,))
         handle = runtime.begin_execution(state.work_id, expected_revision=state.revision, context=prompt, draft=True)
         wrapped = BudgetedAdapter(self._adapters[0], budget, purpose="implementation", deadline=deadline)
@@ -3032,7 +3091,7 @@ class LongHorizonBenchmark:
             progress = _bench_progress(state)
             if executed:
                 progress.update(
-                    worker_turns=len(wrapped.results),
+                    worker_turns=(int(progress.get("worker_turns", 0)) if recover else 0) + len(wrapped.results),
                     ready=result.status == "completed"
                     and re.search(r"(?im)^\s*PACT_REVIEW_READY\s*$", result.final_text) is not None,
                     milestone_ready=result.status == "completed"
@@ -3040,13 +3099,27 @@ class LongHorizonBenchmark:
                     last_worker_status=result.status,
                 )
             p0 = {"status": result.status, "executed": executed, "stopped": wrapped.stopped}
+            if self._args.external_live_workdir is not None:
+                p0["native_status"] = getattr(self._adapters[0], "last_native_status", None)
             lh = self._progress(state)
+            summary = result.final_text or result.stderr_tail or f"Worker {result.status}; partial files retained."
             # A refused P0 made no model call; its saved tree equals S0 and a
             # later explicit resume may still run the first implementation.
-            lh.update(phase="p0_saved" if executed else "s0_frozen", p0=p0)
+            if recover and executed:
+                # Recovery saves a new candidate. A crash before _seal_p0
+                # must not leave the active stage pointing at its predecessor.
+                lh["stages"] = {k: v for k, v in self._stages(state).items() if k != "p0"}
+            if recover and not executed:
+                from pact_core.kernel import read_work_candidate
+
+                lh.pop("prior_failed_draft", None)
+                lh["phase"] = "p0_saved"
+                summary = read_work_candidate(state.candidate.artifact).summary.read_text(encoding="utf-8")
+            else:
+                lh.update(phase="p0_saved" if executed else "s0_frozen", p0=p0)
             state = runtime.save_candidate(
                 handle,
-                summary=result.final_text or result.stderr_tail or f"Worker {result.status}; partial files retained.",
+                summary=summary,
                 advisory={**state.advisory, "benchmark": progress, self._plugin.spec.progress_key: lh},
             )
         finally:
@@ -3351,6 +3424,22 @@ class LongHorizonBenchmark:
             reason = admission.refused or "clarification_budget_exhausted"
         else:
             reason = "clarification_budget_exhausted"
+        self._invocation.public_review_basis_sha256 = None
+        if (reason == "public_evidence_unavailable" and progress is not None and progress.started
+                and progress.required_criteria and state.candidate is not None):
+            # The receipt retains free-form diagnostics. Only structured
+            # evidence and decisions can change the retry basis.
+            basis = [
+                state.work_id, state.candidate.tree, sorted(progress.required_criteria),
+                sorted(progress.completed_criteria), list(state.user_decisions),
+            ]
+            try:
+                encoded = json.dumps(basis, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+            except (TypeError, ValueError):
+                # An unencodable basis leaves the normal continuation path available.
+                pass
+            else:
+                self._invocation.public_review_basis_sha256 = hashlib.sha256(encoded).hexdigest()
         self._invocation.stop_reason = reason
         if clear_suite and "long_horizon_suite" in state.advisory:
             state = runtime.update_advisory(

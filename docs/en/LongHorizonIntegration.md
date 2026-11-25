@@ -14,6 +14,10 @@ Run the offline matrix in separate Python 3.12 environments. Both need pytest, p
 
 ## `--lh` entry and MemGraph
 
-`jiuwenswarm --lh ...` and `jiuwenswarm-process --lh ...` (also `python -m jiuwenswarm.lh`) run the shared long-horizon controller vendored under `jiuwenswarm/lh/` from long-horizon-controller `965e3704d5cdcec8d2f838295ae6624d2e802c11`. Only the agent-independent core, the generic plugin and the native Jiuwen plugin are included; Harbor/Terminal-Bench, Chrys, Chrys ACP, the C7 baseline and the pinned public-CA overlay stay in the controller repository. Without `--lh`, both entry points keep their original behavior. The controller requires the `pact-core==0.2.0.dev0+bytes1.deadline1.turns1` wheel, which is imported only on the `--lh` path. See `jiuwenswarm/lh/README.md`.
+`jiuwenswarm --lh ...`, `jiuwenswarm-process --lh ...` and `python -m jiuwenswarm.lh`
+run the shared controller and native Jiuwen plugin embedded under `jiuwenswarm/lh/`.
+The controller revision and the required PACT Core wheel are pinned in
+[`SOURCE.json`](../../jiuwenswarm/lh/SOURCE.json). See the
+[suite usage and installation guide](../../jiuwenswarm/lh/README.en.md).
 
 The former ContextGraph integration is renamed MemGraph and stays disabled by default. The native read-only MCP (`jiuwenswarm.long_horizon.memgraph_mcp`) is registered only with `JIUWENSWARM_MEMGRAPH_ENABLED=1` and the `MEMGRAPH_HTTP_URL`, `MEMGRAPH_EXPECTED_RECEIPT_SHA256`, `MEMGRAPH_EXPECTED_CORPUS` and `MEMGRAPH_CALL_AUDIT_PATH` variables; the controller-side corpus query is used only when both `--memgraph-command` and `--memgraph-receipt` are given. Deployments that previously set `JIUWENSWARM_BENCH_MEMORY_ENABLED` / `CONTEXTGRAPH_*` must switch to the new names.

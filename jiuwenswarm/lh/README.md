@@ -1,19 +1,23 @@
 # `--lh`：long-horizon 控制器
 
 本目录是 [long-horizon-controller](https://github.com/SELab-Leibniz/long-horizon-controller)
-`ccb4adc6ab3bf1e592db978603a0a165ae3c2c47` 中与 agent 无关的共享控制器核心，
+`732f3640546334a3730b5c6ae408680a17dd325f` 中与 agent 无关的共享控制器核心，
 只保留 JiuwenSwarm 原生 worker 插件和通用插件。Harbor/Terminal-Bench、Chrys、
 Chrys ACP、C7 基线和固定公共 CA overlay 仍留在控制器仓库，不随本集成发布。
 候选归档、公开检查回执和交付使用的通用辅助函数随核心一起迁入；
 来源与本地适配记录在 `SOURCE.json`。
 
-本次 suite 同步包含：
+suite 支持以下流程：
 
 - 按当前 Work、输入与来源绑定的规划断点，以及独立 criterion 的并发复审和恢复。
 - 隔离的可执行 Reviewer、检查方法诊断、审查准入与修复调度。
 - 交付预留时间、检查生命周期、候选归档，以及基于完整需求的提前验收审计。
 - 公开参考程序的多检查点比较；参考不可用、候选差异与可信回执分别记录。
 - 原生事件的有界保留、内存压力证据、只读阶段的状态与日志隔离，以及 shell 进程终止保护。
+
+本版同步了保存失败草稿和计算公开审查重试依据的共享逻辑。上游 external adapter
+使用持久模型会话恢复草稿，并根据结构化证据决定何时退避。Jiuwen 原生入口通过
+`--work-id` 与 `--expected-revision` 续跑已保存的 Work。
 
 ## 入口
 

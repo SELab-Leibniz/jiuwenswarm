@@ -161,6 +161,10 @@ class RoleBoundary:
     def configuration_failure(self) -> str | None:
         return self.native.configuration_failure
 
+    @property
+    def last_native_status(self) -> str | None:
+        return getattr(self.native, "last_native_status", None)
+
     def probe(self) -> Any:
         return self.native.probe()
 

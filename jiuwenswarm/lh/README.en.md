@@ -1,7 +1,7 @@
 # Native JiuwenSwarm long-horizon suite
 
 This package embeds the shared controller from
-[`long-horizon-controller@ccb4adc6ab3b`](https://github.com/SELab-Leibniz/long-horizon-controller/tree/ccb4adc6ab3bf1e592db978603a0a165ae3c2c47).
+[`long-horizon-controller@732f36405463`](https://github.com/SELab-Leibniz/long-horizon-controller/tree/732f3640546334a3730b5c6ae408680a17dd325f).
 `SOURCE.json` records the full revision, file hashes and integration adaptations.
 The native bridge remains in `jiuwenswarm.long_horizon`.
 
@@ -22,7 +22,7 @@ requirements on S0, constructs a Goal Contract and Initial Plan, runs P1, and
 enters PACT's review, repair, acceptance and delivery loop. The `benchmark`
 workflow remains available as an explicit alternative.
 
-The current sync adds Work-bound planning checkpoints, parallel independent
+The suite supports Work-bound planning checkpoints, parallel independent
 criterion review, isolated executable reviewers, check-method diagnosis,
 time-based review admission, candidate archives and finishing reserves. Early
 acceptance can trigger a bounded full-requirement audit. Public reference tools
@@ -34,6 +34,11 @@ logs and caches from the frozen source view.
 Chrys/ACP backends, external SDK drivers, benchmark launchers, C7 and public-CA
 overlays remain in the controller repository. The embedded package includes the
 archive, check-receipt and delivery helpers used by the shared controller.
+
+This revision syncs the shared logic for saved failed drafts and public review
+retry fingerprints. The upstream external adapter resumes drafts in a persistent
+model session and uses structured evidence to schedule retries. The native
+Jiuwen entry resumes saved Work via `--work-id` and `--expected-revision`.
 
 ## Configuration
 
