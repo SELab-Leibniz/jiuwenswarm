@@ -18,6 +18,19 @@ The two workflow cases run real WorkRuntime operations on temporary Git reposito
 with scripted roles and check the exported candidate and delivery. The native bridge
 case separately checks that the original-task adapter seals its latest candidate.
 
+On macOS with Python 3.13.3, commit `610d87e1e` passed 68 targeted controller,
+CLI and public-check tests and 17 native bridge, evidence and migration tests.
+Through the process CLI, scripted `suite` and `benchmark` runs each delivered
+the requested file from a clean checkout and again from an offline installation
+of the WorkSwarm distribution. These fixtures did not call a model or run an
+external grader.
+
+Both the sdist and the wheel contained all 58 WorkRuntime Python files and
+five runtime resources. The Python syntax trees matched the pinned upstream
+artifact after normalizing package imports, and the resource bytes matched
+exactly. The 101 controller and native bridge files matched the manifest.
+The only nested dependency wheel was the public `pathspec==1.1.1` artifact.
+
 ## Historical wheel installation at `6a6e643e2` (2026-11-25)
 
 The source distribution and the WorkSwarm wheel built from it contain the same

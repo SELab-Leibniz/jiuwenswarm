@@ -1,5 +1,10 @@
 # Fixed long-horizon integration provenance
 
+The active suite and benchmark use the source release documented under
+[Current embedded suite sync](#current-embedded-suite-sync-2026-11-25).
+
+## Historical native integration and original-task benchmark
+
 The native agent implementation starts from openJiuwen-ai/jiuwenswarm
 `49c9f5b4c66d193e4168bfa9c82c2df025c773f0`. Added integration code is a separate,
 versioned treatment; its measurements must not be attributed to the unmodified
@@ -49,7 +54,7 @@ Native reviewer transport captures its final JSON with read-only source tools;
 this differs from Chrys's writable transport file. The native proposer remains
 the separately documented combined investigation/synthesis adapter.
 
-This workflow uses the updated external `pact-core==0.2.0.dev0` wheel, SHA-256
+That original-task benchmark revision used an external `pact-core==0.2.0.dev0` wheel, SHA-256
 `06c8c2ccba2112ce7614fc3ba0866539bd53f8314c15bce9049153468b8b5d2a`.
 Its dependency version is unchanged but its bytes and public WorkRuntime/
 BenchDriver interfaces differ from the legacy wheel. Both are explicitly pinned
