@@ -1,5 +1,31 @@
 # Suite synchronization validation
 
+## 2026-11-26 · Controller bdf12e3 and native Work continuation
+
+The embedded controller follows upstream PRs #89 and #90. The native CLI
+reconstructs public regression context on an explicit suite resume from the
+current WorkRuntime candidate and its registered checks. The external SDK's
+persistent sessions and cross-Work ledger are upstream integrations.
+
+- The public evidence tests exercise actual WorkRuntime verification, including
+  a public comparison at two checkpoints and an independently admitted behavior
+  check. The role tests cover legacy and bounded planning. A native resume test
+  records a mismatch at checkpoint 2 on P0, resumes at the recorded revision,
+  and observes that evidence in the P1 Worker and independent Reviewer prompts.
+- Three recovery cases cover an explicitly rotated executor after P1 stops. A
+  verified P0 permits recovery, a modified P0 manifest prevents replay, and
+  an exhausted implementation budget admits no new turns. The ordinary native
+  resume test also retains its inspection requirement for an unsealed P1.
+- From a clean checkout of `4087a3b8f`, macOS/Python 3.13.3 installed the frozen
+  production dependencies using `uv sync --frozen --no-dev --no-editable`
+  from a populated offline uv cache. The installed package included
+  `pathspec==1.1.1`, the new handoff module and the source manifest.
+  `initialization_smoke --check-native-imports` passed outside the checkout.
+- Using the installed `--run-json FILE --lh` dispatcher and scripted roles,
+  both modes reached Core acceptance and delivery, exited 0 and applied the
+  expected `greeting.txt` patch. Suite exercised 15 role calls and benchmark 5.
+  Both selection records report external grading as `not_run`.
+
 ## 2026-11-26 · Real native configuration admission without inference
 
 The default browser configuration uses `browser.decision.api_key_env` as an
