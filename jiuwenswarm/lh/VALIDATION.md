@@ -1,12 +1,24 @@
 # Suite synchronization validation
 
+## Default production installation
+
+From a clean checkout, run the platform's production install and check the installed package metadata:
+
+```sh
+uv sync --frozen --no-dev --no-editable
+uv run --no-sync python -I -c 'from importlib.metadata import requires, version; assert "pathspec==1.1.1" in requires("workswarm"); print(version("pathspec"))'
+```
+
+On macOS with Python 3.13.3 this installed `pathspec` 1.1.1. The installed
+`capture_workspace` kept a tracked file and an untracked file re-included by
+`.gitignore`, and excluded an ignored file and directory from the frozen view.
+
 ## Source-based WorkRuntime
 
 Both workflows import `jiuwenswarm.pact_core`. Run the workflow regressions from a
 fresh checkout with the project's base and test dependencies installed:
 
 ```sh
-python -m pip install -r jiuwenswarm/lh/requirements.txt
 python -m pytest -q -o addopts='' --confcutdir=tests/lh tests/lh/test_pact_core_sources.py \
   tests/lh/test_suite_flow.py::test_shared_suite_restores_p1_planning_recall_and_localization_before_review \
   tests/lh/test_portable_flow.py::test_third_agent_runs_same_controller_without_native_packages

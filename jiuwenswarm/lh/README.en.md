@@ -61,14 +61,14 @@ write guard are retained.
 
 ## Install from the PR
 
-Use Python 3.11–3.13 in this checkout. Both the default `suite` and the original-task `benchmark` use the [PACT Core WorkRuntime source](../pact_core/) included in WorkSwarm. The `lh` extra installs `pathspec` for snapshot filtering.
+Use Python 3.11–3.13 in this checkout. Both the default `suite` and the original-task `benchmark` use the [PACT Core WorkRuntime source](../pact_core/) included in WorkSwarm. A default production install includes `pathspec==1.1.1` for applying `.gitignore` rules during snapshot capture.
 
 ```bash
-uv sync --frozen --extra lh
+uv sync --frozen --no-dev --no-editable
 uv run --no-sync jiuwenswarm-process --lh --help
 ```
 
-If this branch is already installed through the usual JiuwenSwarm setup, activate that environment and install `pathspec` offline. pip verifies the bundled file's SHA-256 digest.
+For offline deployments that manage dependencies manually with `--no-deps`, this command installs the bundled `pathspec` and verifies its SHA-256 digest.
 
 ```bash
 python -m pip install -r jiuwenswarm/lh/requirements.txt

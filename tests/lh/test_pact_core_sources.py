@@ -2,8 +2,10 @@
 
 import hashlib
 import json
+import tomllib
 from importlib.resources import files
 from importlib.util import find_spec
+from pathlib import Path
 
 from jiuwenswarm import pact_core
 
@@ -43,3 +45,13 @@ def test_offline_requirements_install_only_pathspec() -> None:
     assert {item.name for item in wheel_dir.iterdir() if item.name.endswith(".whl")} == {wheel_name}
     wheel = wheel_dir.joinpath(wheel_name)
     assert hashlib.sha256(wheel.read_bytes()).hexdigest() == pathspec["sha256"]
+
+
+def test_default_install_includes_snapshot_filter() -> None:
+    root = Path(__file__).resolve().parents[2]
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    packages = tomllib.loads((root / "uv.lock").read_text(encoding="utf-8"))["package"]
+    workswarm = next(package for package in packages if package["name"] == project["name"])
+
+    assert "pathspec==1.1.1" in project["dependencies"]
+    assert {"name": "pathspec"} in workswarm["dependencies"]

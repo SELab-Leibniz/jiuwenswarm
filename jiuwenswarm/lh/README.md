@@ -79,14 +79,14 @@ Linux root 环境下可通过 `--reviewer-uid` / `--reviewer-gid` 配置专用 R
 
 ## 从 PR 安装
 
-在本分支根目录使用 Python 3.11–3.13。WorkSwarm 随仓库提供 [PACT Core WorkRuntime 源码](../pact_core/)。默认的 `suite` 和原始任务 `benchmark` 都导入这份源码。`lh` extra 安装快照过滤器所需的 `pathspec`。
+在本分支根目录使用 Python 3.11–3.13。WorkSwarm 随仓库提供 [PACT Core WorkRuntime 源码](../pact_core/)。默认的 `suite` 和原始任务 `benchmark` 都导入这份源码。生产环境默认安装 `pathspec==1.1.1`，供 LH 创建快照时解析 `.gitignore`。
 
 ```bash
-uv sync --frozen --extra lh
+uv sync --frozen --no-dev --no-editable
 uv run --no-sync jiuwenswarm-process --lh --help
 ```
 
-如果已经按 JiuwenSwarm 的常规流程安装本分支，可从仓库离线安装 `pathspec`。pip 会核验该文件的 SHA-256。
+离线部署若使用 `--no-deps` 手动配置依赖，可用下列命令从仓库安装 `pathspec` 并核验 SHA-256。
 
 ```bash
 python -m pip install -r jiuwenswarm/lh/requirements.txt

@@ -29,10 +29,9 @@ reported separately in the benchmark validation record.
 
 At JiuwenSwarm revision `6a6e643e2`, standalone Campaign used the Chrys `040a1156` distribution of `pact-core==0.2.0.dev0` (upstream source `aa9073bed4970481a035755990e1682e9de486d8`, artifact SHA-256 `4f08b2b6ae258823e0e1c824380f58579a6e4174d02b3b1338a32ee9eb76ab2a`). That revision identifies historical Campaign runs.
 
-The snapshot adapter adds `pathspec==1.1.1` as an explicit runtime dependency in
-`requirements.lock`, with the same wheel hash already present in upstream's
-`uv.lock`. The upstream `--no-dev` install does not include this package; the
-separate hash-checked installation is recorded as a suite-only dependency layer.
+The snapshot adapter originally installed `pathspec==1.1.1` separately from
+`requirements.lock`. WorkSwarm now declares it as a default runtime dependency.
+The bundled wheel retains the upstream lockfile's hash for offline installations.
 
 There is no route classifier: this entrypoint always selects the long-horizon
 workflow. External memory and writeback are disabled for the initial treatment.

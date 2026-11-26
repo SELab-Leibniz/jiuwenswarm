@@ -11,7 +11,7 @@ The companion controller is https://github.com/SELab-Leibniz/long-horizon-contro
 The suite and original-task benchmark import the same [WorkRuntime source](../../jiuwenswarm/pact_core/) and share the native Jiuwen execution and evidence adapters. The old standalone `python -m jiuwenswarm.long_horizon` command now prints migration instructions. Start a new Work from a Git checkout with either command.
 
 ```bash
-uv sync --frozen --extra lh
+uv sync --frozen --no-dev --no-editable
 uv run --no-sync jiuwenswarm-process --lh --workflow suite --task task.md --cwd /path/to/repo
 uv run --no-sync jiuwenswarm-process --lh --workflow benchmark --task task.md --cwd /path/to/repo
 ```

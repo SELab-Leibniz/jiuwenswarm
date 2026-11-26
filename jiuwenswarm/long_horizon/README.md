@@ -5,7 +5,7 @@
 ## 安装与执行
 
 ```bash
-uv sync --frozen --extra lh
+uv sync --frozen --no-dev --no-editable
 uv run --no-sync jiuwenswarm-process --lh --workflow suite --task /inputs/task.md --cwd /workspace/project
 uv run --no-sync jiuwenswarm-process --lh --workflow benchmark --task /inputs/task.md --cwd /workspace/project
 ```
