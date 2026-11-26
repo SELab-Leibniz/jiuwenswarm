@@ -89,9 +89,11 @@ uv run --no-sync python -I -m jiuwenswarm.lh.initialization_smoke --check-native
 
 初始化 smoke 使用临时 Git 仓库和非空 `.gitignore`，通过真实控制器、WorkRuntime 与原生快照实现完成 S0，在 P0 前停止，并禁止模型 worker 执行。它不需要 pytest 或开发依赖。可用 `--output /path/to/fresh-directory` 保留检查报告和 `selection.json`。该检查覆盖初始化，不代表模型执行、完整工作流或外部评测通过。
 
-`--check-native-imports` 另在隔离子进程中准备原生日志／状态目录并导入 Process CLI runtime，禁止网络访问，保留 `native-imports.json` 及 stdout/stderr。该子进程失败或超时会让整个 smoke 失败。
+`--check-native-imports` 另在隔离子进程中校验原生 worker 能接受包内默认配置，再准备原生日志／状态目录并导入 Process CLI runtime，禁止网络访问，保留 `native-imports.json` 及 stdout/stderr。该子进程失败或超时会让整个 smoke 失败。
 
 CI 在全新 Linux/Python 3.11 环境中按上述默认生产安装方式安装，再从源码目录之外、禁用网络的容器运行 smoke，避免开发依赖或源码路径掩盖安装缺漏。
+
+默认配置的 `browser.decision.api_key_env` 填写环境变量名。OpenRouter 使用 `OPENROUTER_API_KEY`，TypeSafe 使用 `TYPESAFE_API_KEY`，共用主模型密钥时可填 `API_KEY`。密钥值由运行环境提供。
 
 离线部署若使用 `--no-deps` 手动配置依赖，可用下列命令从仓库安装 `pathspec` 并核验 SHA-256。正常默认安装不需要此附加步骤。
 

@@ -565,6 +565,56 @@ class WorkerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.metadata()["status"], "configuration_failed")
         self.assertFalse((self.root / "stage/state/config/config.yaml").exists())
 
+    async def test_packaged_config_reaches_native_with_browser_key_lookup(self):
+        from importlib.resources import files
+
+        self.template.write_bytes(files("jiuwenswarm.resources").joinpath("config.yaml").read_bytes())
+        name = yaml.safe_load(self.template.read_text())["browser"]["decision"]["api_key_env"]
+        worker = self.worker("""
+        import yaml
+        config = pathlib.Path(os.environ['JIUWENSWARM_CONFIG_DIR']) / 'config.yaml'
+        assert yaml.safe_load(config.read_text())['browser']['decision']['api_key_env'] == 'OPENROUTER_API_KEY'
+        emit(result())
+        """)
+        with patch.dict(os.environ, {name: "synthetic-browser-credential"}):
+            first = await self.run_worker(worker)
+        self.assertEqual(first.status, "completed")
+        archived = (self.root / "stage/native-config.before.yaml").read_text()
+        self.assertNotIn("synthetic-browser-credential", archived)
+        with patch.dict(os.environ, {name: "rotated-synthetic-browser-credential"}):
+            with self.assertRaises(WorkerConfigurationError) as caught:
+                await self.continue_worker(worker, first)
+        self.assertEqual(caught.exception.code, "CONTINUATION_IDENTITY_MISMATCH")
+
+    async def test_browser_key_name_exception_is_scoped_to_its_config_field(self):
+        worker = self.worker("raise AssertionError('must not run')")
+        for index, config in enumerate((
+            {"browser": {"decision": {"api_key": "OPENROUTER_API_KEY"}}},
+            {"models": {"api_key_env": "OPENROUTER_API_KEY"}},
+            {"extra": [{"browser": {"decision": {"api_key_env": "OPENROUTER_API_KEY"}}}]},
+            {"browser": {"decision": {"api_key_env": "inline-test-credential"}}},
+            {"browser": {"decision": {"api_key_env": "unverified_literal"}}},
+            {"browser": {"decision": {"api_key_env": ["OPENROUTER_API_KEY"]}}},
+        )):
+            with self.subTest(config=config):
+                self.template.write_text(yaml.safe_dump(config))
+                output = self.root / f"invalid-{index}"
+                with self.assertRaises(WorkerConfigurationError) as caught:
+                    await worker.run(stage="test", prompt="inspect", workspace=self.workspace, output_dir=output)
+                self.assertEqual(caught.exception.code, "INVALID_CONFIG")
+                self.assertFalse((output / "state/config/config.yaml").exists())
+
+    async def test_documented_browser_key_names_are_accepted_when_unset(self):
+        for name in ("OPENROUTER_API_KEY", "TYPESAFE_API_KEY", "API_KEY"):
+            with self.subTest(name=name):
+                self.template.write_text(yaml.safe_dump({"browser": {"decision": {"api_key_env": name}}}))
+                worker = self.worker("emit(result())")
+                env = dict(os.environ)
+                env.pop(name, None)
+                result = await worker.run(stage="test", prompt="inspect", workspace=self.workspace,
+                                          output_dir=self.root / name, environment=env)
+                self.assertEqual(result.status, "completed")
+
     async def test_literal_default_credential_rejected(self):
         self.template.write_text("api_key: ${KEY:-literal-secret}\n")
         with self.assertRaises(WorkerConfigurationError):

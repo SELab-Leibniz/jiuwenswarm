@@ -81,6 +81,7 @@
     "Extract source_files, _safe_path and copy_files from terminal.py into workspace_files.py for delivery.",
     "Keep MemGraph naming and disabled default, native transport retry rail and public-test write guard.",
     "Tests use explicit asyncio markers, embedded package/fixture paths and fake-native startup for protocol controls.",
+    "Admit the native template's documented browser credential variable names and bind their resolved environment to session continuation.",
     "Embed the modern WorkRuntime source under jiuwenswarm.pact_core for both suite and benchmark. Internal imports use the package namespace. Keep upstream schema identifiers and resource bytes. Retire the standalone Campaign command and its dedicated adapter."
   ],
   "companion_wheels": {
@@ -579,7 +580,7 @@
       "source_sha256": "75f4730b608e584d37e708f81349ea2777216b4440441494a333f518d2ec2a9e"
     },
     "jiuwenswarm/long_horizon/worker.py": {
-      "sha256": "2054116975d77ca1062f2adba474093cf0668460f67a950b21918144dda759e7",
+      "sha256": "848e51b56cef9edd0ceff2c57b77d897523ad25c01844c120354c9ed6e1cd23b",
       "source": "vendor/jiuwen-lh-native/jiuwenswarm/long_horizon/worker.py",
       "source_sha256": "514a8a6d9404304974d281b4adb311be0d8b229b68862a1829b8f7a44ad06cf8"
     },

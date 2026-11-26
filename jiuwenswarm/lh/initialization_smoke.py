@@ -33,6 +33,7 @@ _NATIVE_IMPORT_CHECK = r"""
 import importlib
 import json
 import sys
+from importlib.resources import files
 from pathlib import Path
 
 state, result_path = (Path(value) for value in sys.argv[1:])
@@ -44,7 +45,14 @@ def no_network(event, args):
 
 sys.addaudithook(no_network)
 try:
+    import yaml
     from jiuwenswarm.long_horizon import native_entry
+    from jiuwenswarm.long_horizon.worker import _credential_free
+
+    config = yaml.safe_load(files("jiuwenswarm.resources").joinpath("config.yaml").read_bytes())
+    if not isinstance(config, dict) or not _credential_free(config):
+        raise ValueError("native worker rejected the packaged config template")
+    result["packaged_config_accepted"] = True
     native_entry._prepare_stage(state, read_only=False)
     native_entry._configure_logging(state)
     for name in ("jiuwenswarm.channels.process_cli.machine", "jiuwenswarm.channels.process_cli.main"):

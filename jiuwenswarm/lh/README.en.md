@@ -71,9 +71,11 @@ uv run --no-sync python -I -m jiuwenswarm.lh.initialization_smoke --check-native
 
 The initialization smoke creates a temporary Git repository with a nonempty `.gitignore`. It exercises the real controller, WorkRuntime and native snapshot implementation through S0, then stops before P0 and forbids model worker execution. It needs no pytest or development dependencies. Pass `--output /path/to/fresh-directory` to retain its report and `selection.json`. This checks initialization, not model execution, a complete workflow or an external benchmark.
 
-`--check-native-imports` also prepares native logging/state and imports the Process CLI runtime in an isolated subprocess with network access blocked. It retains `native-imports.json` and stdout/stderr. A failure or timeout in this subprocess fails the whole smoke.
+`--check-native-imports` also checks that the native worker accepts the packaged config, prepares native logging/state and imports the Process CLI runtime in an isolated subprocess with network access blocked. It retains `native-imports.json` and stdout/stderr. A failure or timeout in this subprocess fails the whole smoke.
 
 CI uses a clean Linux/Python 3.11 environment with the default production installation above. It runs the smoke outside the checkout in a network-disabled container, so development dependencies and source imports cannot hide packaging omissions.
+
+The default config stores an environment variable name in `browser.decision.api_key_env`. Use `OPENROUTER_API_KEY` for OpenRouter, `TYPESAFE_API_KEY` for TypeSafe, or `API_KEY` when sharing the main model's key. Supply the credential through the runtime environment.
 
 For offline deployments that manage dependencies manually with `--no-deps`, this command installs the bundled `pathspec` and verifies its SHA-256 digest. A normal default installation does not need this additional step.
 

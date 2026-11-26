@@ -56,6 +56,9 @@ _CREDENTIAL_KEY = re.compile(
     r"(?:^|_)token$|(?:^|_)key_(?:file|path)$", re.I,
 )
 _ENV_REFERENCE = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?::-)?\}\Z")
+# The native browser config uses these public names directly with os.environ.get.
+_BROWSER_KEY_FIELD = ("browser", "decision", "api_key_env")
+_BROWSER_KEY_NAMES = frozenset({"OPENROUTER_API_KEY", "TYPESAFE_API_KEY", "API_KEY"})
 _SECRET_PREFIX = re.compile(
     r"(?:^|[/\s])(?:sk-|gh[opusr]_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16})", re.I,
 )
@@ -340,6 +343,14 @@ def _object_sha256(value: Any) -> str:
 
 def _environment_sha256(config_text: str, environment: dict[str, str]) -> str:
     references = set(re.findall(r"\$\{([A-Za-z_][A-Za-z0-9_]*)", config_text))
+    try:
+        browser_key = yaml.safe_load(config_text)
+    except (yaml.YAMLError, ValueError, OverflowError):
+        browser_key = None  # Malformed templates fail normal configuration admission.
+    for field_name in _BROWSER_KEY_FIELD:
+        browser_key = browser_key.get(field_name) if isinstance(browser_key, dict) else None
+    if isinstance(browser_key, str) and browser_key in _BROWSER_KEY_NAMES:
+        references.add(browser_key)
     return _object_sha256({key: environment.get(key) for key in sorted(references)})
 
 
@@ -1174,18 +1185,20 @@ def _credential_path(key: str, value: str) -> bool:
     )
 
 
-def _credential_free(value: Any) -> bool:
+def _credential_free(value: Any, path: tuple[object, ...] = ()) -> bool:
     if isinstance(value, dict):
         for key, item in value.items():
-            if not _credential_free(item):
+            item_path = (*path, key)
+            if not _credential_free(item, item_path):
                 return False
             if _credential_key(str(key)) and item not in (None, ""):
                 if not isinstance(item, str) or not (
                     _ENV_REFERENCE.fullmatch(item) or _credential_path(str(key), item)
+                    or (item_path == _BROWSER_KEY_FIELD and item in _BROWSER_KEY_NAMES)
                 ):
                     return False
     elif isinstance(value, list):
-        return all(_credential_free(item) for item in value)
+        return all(_credential_free(item, (*path, index)) for index, item in enumerate(value))
     elif isinstance(value, str):
         # Credentials embedded in URLs are not environment-only configuration.
         if _URL_USERINFO.search(value):
