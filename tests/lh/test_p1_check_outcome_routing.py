@@ -73,8 +73,11 @@ async def run_case(tmp_path, *, check=None, steps=None, max_turns=3):
 
 @pytest.mark.asyncio
 async def test_real_compile_failure_reaches_diagnostic_and_actionable_worker(tmp_path):
-    controller, calls, outcome, selection = await run_case(tmp_path)
-    assert len(calls["calls"]) == 3
+    controller, calls, outcome, selection = await run_case(
+        tmp_path, steps=[(BAD, "completed")] * 2 + [(GOOD, "completed")] * 8
+    )
+    assert not outcome.internal_failure, selection["internal_failure"]
+    assert len(calls["calls"]) > 3
     assert calls["review_calls"]
     first = calls["review_calls"][0]
     assert "Diagnose the recorded public result" in first.prompt
@@ -125,7 +128,7 @@ async def test_recorded_timeout_goes_to_diagnostic_without_automatic_recheck(tmp
         steps=[(BAD, "completed"), (BAD, "completed")],
         max_turns=2,
     )
-    # Explicit max2 prevents a new Worker; only the diagnostic is admitted.
+    # A timed-out check receives a diagnostic on the original check deadline.
     assert calls["review_calls"]
     assert controller._progress(controller._invocation.state)["first_review"]["purpose"] == "diagnostic"
     assert len(count) == 3

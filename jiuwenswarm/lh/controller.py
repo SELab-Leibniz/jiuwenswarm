@@ -110,7 +110,7 @@ from .review_admissions import (
     worker_repair_allowed,
     worker_repair_round_seconds,
 )
-from .review_governance import recent_acceptance_durations, time_admission
+from .review_governance import normalize_gap_id, recent_acceptance_durations, time_admission
 from .review_limits import ReviewLimitedDriver, _pinned_budget_window
 from .reviewer_execution import (
     REVIEWER_EXECUTION_GUIDANCE_VERSION,
@@ -316,7 +316,7 @@ class BenchmarkArguments:
     trial_id: str
     budget_seconds: float = 172800.0
     max_role_calls: int | None = None
-    max_turns: int | None = 64
+    max_turns: int | None = None
     turn_timeout_seconds: float = 21600.0
     review_interval: int = 2
     review_each_round: bool = False
@@ -395,10 +395,11 @@ class BenchmarkArguments:
             raise RuntimeContractError("reviewer uid and gid must be positive nonzero IDs")
         if (self.work_id is None) != (self.expected_revision is None):
             raise RuntimeContractError("explicit resume requires both --work-id and --expected-revision")
-        if self.max_turns is None:
+        if self.deadline_only_budget_seconds is not None:
             total = self.deadline_only_budget_seconds
             if (
-                self.workflow != "suite"
+                self.max_turns is not None
+                or self.workflow != "suite"
                 or self.budget_started_at_unix is None
                 or isinstance(total, bool)
                 or not isinstance(total, (int, float))
@@ -412,10 +413,8 @@ class BenchmarkArguments:
                 raise RuntimeContractError(
                     "deadline-only turns require suite, original origin and explicit matching finite task/role budget"
                 )
-        elif isinstance(self.max_turns, bool) or not isinstance(self.max_turns, int) or self.max_turns < 1:
-            raise RuntimeContractError("max_turns must be a positive integer or null for deadline-only suite")
-        elif self.deadline_only_budget_seconds is not None:
-            raise RuntimeContractError("deadline_only_budget_seconds requires max_turns=null")
+        elif self.max_turns is not None and (type(self.max_turns) is not int or self.max_turns < 1):
+            raise RuntimeContractError("max_turns must be a positive consecutive-stall limit or null")
         if (
             isinstance(self.transport_recovery_attempts, bool)
             or not isinstance(self.transport_recovery_attempts, int)
@@ -1085,6 +1084,16 @@ class LongHorizonBenchmark:
         if args.reviewer_launch_policy is None:
             args = replace(args, reviewer_launch_policy=ReviewerLaunchPolicy.from_args(args))
             self._args = args
+        if args.work_id is not None and args.work_id == args.derived_work_id:
+            saved = self._frozen(runtime.read_work(args.work_id))
+            # An omitted option on resume inherits the frozen Work's limits.
+            # In particular an explicit spending ceiling survives default changes.
+            args = replace(args,
+                max_turns=args.max_turns if args.max_turns is not None else saved.get("max_turns"),
+                max_role_calls=(args.max_role_calls if args.max_role_calls is not None
+                                else saved["configuration"].get("max_role_calls")),
+            )
+            self._args = args
         task_bytes = args.task.expanduser().resolve(strict=True).read_bytes()
         task_text = task_bytes.decode("utf-8")
         if self._abort.is_set():
@@ -1285,7 +1294,6 @@ class LongHorizonBenchmark:
             worker = GuidedAdapter(worker, self, runtime, resolved, budget)
             reviewer = ManagedReviewer(reviewer, self, runtime, resolved, budget)
             self._adapters = (self._adapters[0], reviewer)
-        turns_used = 0
         window: BudgetWindow | None = None
         if self._phase(state) != "first_review_done":
             with budget.execution():
@@ -1295,7 +1303,7 @@ class LongHorizonBenchmark:
                     return frozen
                 self._window = window
                 self._initialize_phase_policy(output, budget, window)
-                state, turns_used = self._bootstrap(runtime, output, budget, window, task_text, resolved, state)
+                state, _ = self._bootstrap(runtime, output, budget, window, task_text, resolved, state)
                 state = self._answer_external_questions(runtime, state)
         else:
             # A resumed first_review_done invocation has no outer window. Rebuild
@@ -1314,22 +1322,9 @@ class LongHorizonBenchmark:
         if blocked_on_entry and args.allow_user_interaction:
             self._invocation.stop_reason = "acceptance_blocked_unresolved_questions"
             return frozen
-        # Suite's implementation cap is cumulative across explicit resumes.
-        # The budget ledger also retains failed/admitted implementation calls.
-        if args.workflow == "suite":
-            turns_used = sum(call.get("purpose") == "implementation" for call in budget.snapshot()["calls"])
-        remaining_turns = None if args.max_turns is None else args.max_turns - turns_used
         window_deadline = self._driver_window_seconds(window, budget)
         if window is not None and window_deadline is not None and window_deadline <= budget.clock():
             self._invocation.stop_reason = "window_budget_exhausted"
-            return frozen
-        if (
-            remaining_turns is not None
-            and remaining_turns < 1
-            and state.acceptance is None
-            and not (blocked_on_entry and not args.allow_user_interaction)
-        ):
-            self._invocation.stop_reason = "max_turns"
             return frozen
         acceptance_blocked = False
         no_progress = False
@@ -1383,6 +1378,8 @@ class LongHorizonBenchmark:
         def worker_gate(current: WorkSnapshot, _budget: object, _window: object) -> str | None:
             if self._model_window_closed():
                 return "window_budget_exhausted"
+            if self._implementation_stalled(current, budget):
+                return "implementation_stalled"
             skipped_acceptance_reserve = False
             if self._phase_policy is not None and self._budget is not None:
                 evidence = self._phase_policy.worker_deadline_evidence()
@@ -1446,8 +1443,10 @@ class LongHorizonBenchmark:
                 call.get("purpose") == "implementation" and call.get("status") == "completed"
                 for call in cast(list[dict[str, object]], snapshot["calls"])
             )
-            purpose = last_review_purpose(snapshot)
-            if progress_guard.observe(current, completed_workers, purpose=purpose):
+            _, epoch = self._review_admissions.worker_progress(current, snapshot["calls"])
+            progress_guard.observe(current, completed_workers, purpose=last_review_purpose(snapshot))
+            progress_guard.recover(epoch)
+            if progress_guard.stop_reason is not None:
                 no_progress = True
                 (output / "no-progress-stop.json").write_text(
                     json.dumps(progress_guard.evidence(), indent=2, sort_keys=True) + "\n"
@@ -1509,82 +1508,88 @@ class LongHorizonBenchmark:
             driver_window = replace(window, execution_deadline=float(check_deadline))
         pin = _pinned_budget_window(driver_window) if driver_window is not None else contextlib.nullcontext()
         with pin:
-            if blocked_on_entry:
-                # The Work was already blocked at the first review. Do not replay
-                # the driver; resolve questions first, then accept or continue.
-                result = driver._result(state, "invocation_stopped", budget)
-            else:
-                result = driver.run(
-                    state.work_id,
-                    expected_revision=state.revision,
-                    max_turns=None if remaining_turns is None else max(1, remaining_turns),
-                    window_seconds=None if window is not None else window_deadline,
-                    stop_requested=stop_driver,
-                )
-            self._invocation.driver_result = result
-            self._invocation.state = result.snapshot
-            if result.snapshot.acceptance is not None:
-                audited, handled = self._accept_or_audit(
-                    runtime, output, budget, window, result.snapshot, driver
-                )
-                self._invocation.state = audited
-                if handled:
-                    return frozen
-                result = driver._result(audited, self._invocation.stop_reason, budget)
-                self._invocation.driver_result = result
-            if result.snapshot.acceptance is None and self._gate is not None:
-                # Soft/hard proximity must not sacrifice a sealed candidate that
-                # has not had its one host check. This is not new model work.
-                checked = self._check_priority_candidate(runtime, result.snapshot)
-                if checked is not result.snapshot:
-                    result = driver._result(checked, result.stop_reason, budget)
-                    self._invocation.driver_result = result
-                    self._invocation.state = checked
-                    if self._stop_for_public_check(checked):
-                        return frozen
-            if not args.allow_user_interaction and (
-                acceptance_blocked or _acceptance_blocked_only_by_questions(result.snapshot)
-            ):
-                result = self._resolve_unattended_questions(
-                    runtime,
-                    output,
-                    budget,
-                    window,
-                    task_text,
-                    resolved,
-                    driver,
-                    result.snapshot,
-                    result,
-                    control=resolution_control,
-                    stop_driver=stop_driver,
-                    window_deadline=window_deadline,
-                )
+            while True:
+                if blocked_on_entry:
+                    # The Work was already blocked at the first review. Do not replay
+                    # the driver; resolve questions first, then accept or continue.
+                    result = driver._result(state, "invocation_stopped", budget)
+                else:
+                    result = driver.run(
+                        state.work_id,
+                        expected_revision=state.revision,
+                        max_turns=None,
+                        window_seconds=None if window is not None else window_deadline,
+                        stop_requested=stop_driver,
+                    )
                 self._invocation.driver_result = result
                 self._invocation.state = result.snapshot
-        methods, other_failures = method_diagnosis(result.snapshot)
-        if result.stop_reason in {"review_time_admission", "review_fuse_reached", "review_limit_reached"} and (
-            not methods or other_failures
-        ):
-            accepted_state, accepted = self._try_final_acceptance(
-                runtime, output, budget, window, result.snapshot, driver
-            )
-            if accepted:
-                result = driver._result(accepted_state, "accepted", budget)
-                self._invocation.driver_result = result
-                self._invocation.state = accepted_state
-            else:
-                result = driver._result(accepted_state, result.stop_reason, budget)
-                self._invocation.driver_result = result
-        if result.stop_reason in {"review_time_admission", "review_fuse_reached", "review_limit_reached"} and (
-            not methods or other_failures
-        ):
-            repaired, repair_entered = self._repair_after_review_quota(
-                runtime, output, budget, window, result.snapshot, driver
-            )
-            if repair_entered:
-                # No Reviewer ran in this mode, so the work remains unaccepted.
-                result = driver._result(repaired, result.stop_reason, budget)
-                self._invocation.driver_result = result
+                if result.snapshot.acceptance is not None:
+                    audited, handled = self._accept_or_audit(
+                        runtime, output, budget, window, result.snapshot, driver
+                    )
+                    self._invocation.state = audited
+                    if handled:
+                        return frozen
+                    result = driver._result(audited, self._invocation.stop_reason, budget)
+                    self._invocation.driver_result = result
+                if result.snapshot.acceptance is None and self._gate is not None:
+                    # Soft/hard proximity must not sacrifice a sealed candidate that
+                    # has not had its one host check. This is not new model work.
+                    checked = self._check_priority_candidate(runtime, result.snapshot)
+                    if checked is not result.snapshot:
+                        result = driver._result(checked, result.stop_reason, budget)
+                        self._invocation.driver_result = result
+                        self._invocation.state = checked
+                        if self._stop_for_public_check(checked):
+                            return frozen
+                if not args.allow_user_interaction and (
+                    acceptance_blocked or _acceptance_blocked_only_by_questions(result.snapshot)
+                ):
+                    result = self._resolve_unattended_questions(
+                        runtime,
+                        output,
+                        budget,
+                        window,
+                        task_text,
+                        resolved,
+                        driver,
+                        result.snapshot,
+                        result,
+                        control=resolution_control,
+                        stop_driver=stop_driver,
+                        window_deadline=window_deadline,
+                    )
+                    self._invocation.driver_result = result
+                    self._invocation.state = result.snapshot
+                methods, other_failures = method_diagnosis(result.snapshot)
+                if result.stop_reason in {"review_time_admission", "review_fuse_reached", "review_limit_reached"} and (
+                    not methods or other_failures
+                ):
+                    accepted_state, accepted = self._try_final_acceptance(
+                        runtime, output, budget, window, result.snapshot, driver
+                    )
+                    if accepted:
+                        result = driver._result(accepted_state, "accepted", budget)
+                        self._invocation.driver_result = result
+                        self._invocation.state = accepted_state
+                    else:
+                        result = driver._result(accepted_state, result.stop_reason, budget)
+                        self._invocation.driver_result = result
+                if result.stop_reason in {"review_time_admission", "review_fuse_reached", "review_limit_reached"} and (
+                    not methods or other_failures
+                ):
+                    repaired, repair_entered = self._repair_after_review_quota(
+                        runtime, output, budget, window, result.snapshot, driver
+                    )
+                    if repair_entered:
+                        result = driver._result(repaired, result.stop_reason, budget)
+                        self._invocation.driver_result = result
+                    repair_record = _bench_progress(repaired).get("review_quota_worker_repair", {})
+                    if repair_entered and repair_record.get("stop_reason") == "review_reopened_on_progress":
+                        state = repaired
+                        blocked_on_entry = acceptance_blocked = False
+                        continue
+                break
         self._invocation.state = result.snapshot
         if self._args.external_question_channel is not None:
             answered = self._answer_external_questions(runtime, result.snapshot)
@@ -2282,9 +2287,10 @@ class LongHorizonBenchmark:
             reserve_seconds=0.0,
         )
         clean = False
-        audit_stop = "audit_rounds_exhausted"
-        start_round = len(evidence["rounds"]) + 1
-        for round_number in range(start_round, policy.max_rounds + 1):
+        prior_audit_epoch = None
+        stalled_repairs = 0
+        while True:
+            round_number = len(evidence["rounds"]) + 1
             if self._abort.is_set():
                 audit_stop = "invocation_stopped"
                 break
@@ -2378,6 +2384,12 @@ class LongHorizonBenchmark:
                 checked_count=len(report.checked),
                 audit_status="parse",
             )
+            coverage_gaps = [normalize_gap_id(gap) for gap in report.gaps] if report.usable and not report.unverified else None
+            _, audit_epoch = self._review_admissions.worker_progress(state, budget.snapshot()["calls"], coverage_gaps=coverage_gaps)
+            if prior_audit_epoch is not None:
+                stalled_repairs = stalled_repairs + 1 if audit_epoch == prior_audit_epoch else 0
+            prior_audit_epoch = audit_epoch
+            round_evidence.update(consecutive_stalls=stalled_repairs, progress_epoch=audit_epoch)
             if not report.usable:
                 # Loose, empty or contradictory output is not clean. Treat it as
                 # an unresolved investigation item and let the bounded repair
@@ -2397,6 +2409,11 @@ class LongHorizonBenchmark:
                 state = self._flush_early_audit(runtime, output, state, evidence)
                 break
             round_evidence["audit_status"] = "gaps"
+            if stalled_repairs >= policy.max_rounds:
+                round_evidence["worker_status"] = "not_started"
+                evidence["rounds"].append(round_evidence)
+                audit_stop = "audit_repair_stalled"
+                break
             if budget.stop_reason(deadline) or time.time() >= deadline:
                 audit_stop = str(budget.stop_reason(deadline) or "audit_deadline")
                 evidence["rounds"].append(round_evidence)
@@ -2708,8 +2725,8 @@ class LongHorizonBenchmark:
                     "turn_budget_policy": "original_global_deadline_v1",
                     "deadline_only_budget_seconds": args.deadline_only_budget_seconds,
                 }
-                if args.max_turns is None
-                else {}
+                if args.deadline_only_budget_seconds is not None
+                else {"turn_budget_policy": "consecutive_stalls_v1"}
             ),
             "worker_evidence_guidance": WORKER_EVIDENCE_GUIDANCE_VERSION,
             "anytime_deliverable_guidance": ANYTIME_DELIVERABLE_GUIDANCE_VERSION,
@@ -2932,8 +2949,8 @@ class LongHorizonBenchmark:
                     turns,
                 )
         if self._args.workflow == "suite" and self._phase(state) in ("brief_bound", "p1_started"):
-            if self._args.max_turns is not None and self._args.max_turns < 2:
-                self._invocation.stop_reason = "max_turns"
+            if self._implementation_stalled(state, budget):
+                self._invocation.stop_reason = "implementation_stalled"
                 return state, turns
             from .suite import run_repair
 
@@ -2996,7 +3013,7 @@ class LongHorizonBenchmark:
             max(0.0, float(self._args.budget_seconds)),
             policy_path,
             clock=budget.clock,
-            side_calls_use_execution_deadline=self._args.max_turns is None,
+            side_calls_use_execution_deadline=self._args.deadline_only_budget_seconds is not None,
             recent_acceptance=list(recent_acceptance),
             finish_observations=list(finish_observations),
             acceptance_history_provider=acceptance_history,
@@ -3617,13 +3634,32 @@ class LongHorizonBenchmark:
 
     # -- unattended unresolved-question resolution ---------------------
 
+    def _implementation_stalled(self, state: WorkSnapshot, budget: BenchBudget) -> bool:
+        limit = self._args.max_turns
+        if limit is None:
+            return False
+        stalled, _ = self._review_admissions.worker_progress(state, budget.snapshot()["calls"])
+        return stalled >= limit
+
     def _clarification_budget_status(
         self, state: WorkSnapshot, budget: BenchBudget, window: BudgetWindow
     ) -> dict[str, object]:
         """Return the durable clarification allowance before another round."""
         progress = self._progress(state)
         attempts = progress.get("clarification_attempts", [])
-        used_rounds = len(attempts) if isinstance(attempts, list) else 0
+        attempts = [a for a in attempts if isinstance(a, dict) and a.get("kind") == "unattended_resolution"]
+        questions = sorted({_question_text(q).strip().casefold() for q in state.unresolved_assumptions})
+        _, epoch = self._review_admissions.worker_progress(state, budget.snapshot()["calls"])
+        used_rounds = 0
+        for attempt in reversed(attempts):
+            previous = attempt.get("open_questions")
+            if epoch > attempt.get("progress_epoch", 0) or (
+                isinstance(previous, list) and set(questions) < set(previous)
+            ):
+                break
+            used_rounds += 1
+            if attempt.get("reset_before"):
+                break
         snapshot = budget.snapshot()
         spent = 0.0
         for call in cast(list[dict[str, object]], snapshot["calls"]):
@@ -3646,7 +3682,7 @@ class LongHorizonBenchmark:
         if hard_stop is not None:
             reason = hard_stop
         elif used_rounds >= self._args.clarification_max_rounds:
-            reason = "clarification_round_limit"
+            reason = "clarification_stalled"
         elif spent >= limit:
             reason = "clarification_budget_ratio"
         elif remaining <= 1.0:
@@ -3657,6 +3693,8 @@ class LongHorizonBenchmark:
             "available": reason is None,
             "reason": reason,
             "rounds_used": used_rounds,
+            "progress_epoch": epoch,
+            "open_questions": questions,
             "max_rounds": self._args.clarification_max_rounds,
             "spent_seconds": round(spent, 3),
             "limit_seconds": round(limit, 3),
@@ -3970,8 +4008,10 @@ class LongHorizonBenchmark:
             deadline = float(cast(float, snapshot["deadline"]))
             window = BudgetWindow(budget.clock(), deadline, deadline, 0.0)
         last_result = result
-        max_iterations = max(4, self._args.clarification_max_rounds * 2 + 2)
-        for iteration in range(1, max_iterations + 1):
+        history = self._progress(state).get("unattended_resolution", {})
+        iteration = max((row["round"] for row in history.get("rounds", [])), default=0)
+        while True:
+            iteration += 1
             state = runtime.read_work(state.work_id)
             self._invocation.state = state
             if self._abort.is_set() or self._model_window_closed():
@@ -4001,8 +4041,16 @@ class LongHorizonBenchmark:
                     )
                 return driver._result(state, "accepted", budget)
             if not _acceptance_blocked_only_by_questions(state):
-                break
+                return driver._result(state, last_result.stop_reason, budget)
             budget_status = self._clarification_budget_status(state, budget, window)
+            if budget_status["reason"] == "clarification_stalled":
+                state = self._record_question_resolution(
+                    runtime, output, state, number=iteration, status="clarification_stalled",
+                    budget_status=budget_status, resolution=None, applied=None,
+                    clarification={"used": False, "status": "clarification_stalled"},
+                    detail="the same outstanding questions persisted without verified progress", final=True,
+                )
+                return driver._result(state, "clarification_stalled", budget)
             hard_stop = budget.stop_reason(window.deadline)
             if hard_stop is not None:
                 proposed_resolution, proposed_applied = _proposed_question_assumptions(
@@ -4073,25 +4121,15 @@ class LongHorizonBenchmark:
                     state.unresolved_assumptions, str(budget_status["reason"] or "clarification_unavailable")
                 )
                 clarification = {"used": False, "status": str(budget_status["reason"] or "unavailable")}
-            # An implementation fix needs a Worker turn. If none remains, keep
-            # the conservative assumption route rather than stopping only for
-            # lack of an implementation slot.
-            implementation_calls = sum(call.get("purpose") == "implementation" for call in budget.snapshot()["calls"])
-            remaining_turns = (
-                None if self._args.max_turns is None else max(0, self._args.max_turns - implementation_calls)
-            )
-            if remaining_turns is not None and remaining_turns < 1:
-                resolution = _normalize_question_resolutions(
-                    None,
-                    state.unresolved_assumptions,
-                    fallback_reason="no_implementation_turn_remaining",
-                )
             state, applied = self._apply_question_resolutions(runtime, state, resolution)
             status = "worker_fix_required" if applied["implementation_gaps"] else "assumptions_recorded"
             previous_attempts = list(cast(list[object], self._progress(state).get("clarification_attempts", [])))
             attempt = {
                 "invocation_id": self._invocation.invocation_id,
                 "kind": "unattended_resolution",
+                "open_questions": budget_status["open_questions"],
+                "progress_epoch": budget_status["progress_epoch"],
+                "reset_before": budget_status["rounds_used"] == 0,
                 "round": iteration,
                 "status": clarification.get("status"),
                 "admitted_calls": clarification.get("admitted_calls", []),
@@ -4116,19 +4154,10 @@ class LongHorizonBenchmark:
             self._invocation.state = state
             if applied["implementation_gaps"]:
                 control["worker_after_resolution"] = True
-                remaining = (
-                    None
-                    if self._args.max_turns is None
-                    else max(
-                        1,
-                        self._args.max_turns
-                        - sum(call.get("purpose") == "implementation" for call in budget.snapshot()["calls"]),
-                    )
-                )
                 last_result = driver.run(
                     state.work_id,
                     expected_revision=state.revision,
-                    max_turns=remaining,
+                    max_turns=None,
                     window_seconds=None if window is not None else window_deadline,
                     stop_requested=stop_driver,
                 )
@@ -4145,6 +4174,8 @@ class LongHorizonBenchmark:
                         )
                 if state.delivery is not None:
                     return driver._result(state, "accepted", budget)
+                if last_result.stop_reason == "implementation_stalled":
+                    return last_result
                 continue
             # All current questions were resolved as evidence-backed or policy
             # assumptions. Request acceptance again without spending a Worker
@@ -4175,26 +4206,16 @@ class LongHorizonBenchmark:
                     )
                 return driver._result(state, "accepted", budget)
             if role_stop is not None:
-                last_result = driver._result(state, role_stop, budget)
-                break
+                return driver._result(state, role_stop, budget)
             if _acceptance_blocked_only_by_questions(state):
                 continue
             # The Reviewer rejected the candidate without leaving a question.
             # Continue implementation rather than treating that as a policy stop.
             control["worker_after_resolution"] = True
-            remaining = (
-                None
-                if self._args.max_turns is None
-                else max(
-                    1,
-                    self._args.max_turns
-                    - sum(call.get("purpose") == "implementation" for call in budget.snapshot()["calls"]),
-                )
-            )
             last_result = driver.run(
                 state.work_id,
                 expected_revision=state.revision,
-                max_turns=remaining,
+                max_turns=None,
                 window_seconds=None if window is not None else window_deadline,
                 stop_requested=stop_driver,
             )
@@ -4202,29 +4223,6 @@ class LongHorizonBenchmark:
             self._invocation.state = state
             if state.delivery is not None:
                 return driver._result(state, "accepted", budget)
-        state = runtime.read_work(state.work_id)
-        final_status = (
-            "acceptance_blocked_unresolved_questions"
-            if _acceptance_blocked_only_by_questions(state)
-            else last_result.stop_reason
-        )
-        proposed_resolution, proposed_applied = _proposed_question_assumptions(
-            state.unresolved_assumptions, "resolution_loop_exhausted"
-        )
-        state = self._record_question_resolution(
-            runtime,
-            output,
-            state,
-            number=max_iterations,
-            status="resolution_loop_exhausted",
-            budget_status=self._clarification_budget_status(state, budget, window),
-            resolution=proposed_resolution,
-            applied=proposed_applied,
-            clarification={"used": False, "status": "rounds_or_budget_exhausted"},
-            detail="bounded unattended question-resolution loop ended without acceptance",
-            final=True,
-        )
-        return driver._result(state, final_status, budget)
 
     def _bind_brief(
         self, runtime: WorkRuntime, output: Path, turn_root: Path, state: WorkSnapshot, task_text: str
@@ -4409,8 +4407,8 @@ class LongHorizonBenchmark:
         No Reviewer is admitted here. Each round receives the latest recorded
         rejection through the ordinary Worker prompt, saves a candidate, and runs
         the public check. The mode keeps the finish reserve plus one full Worker
-        round in hand and never creates acceptance, so a passing candidate stays
-        explicitly unaccepted.
+        round in hand. Verified progress reopens the ordinary Reviewer path,
+        which retains exclusive authority over acceptance.
         """
         if self._abort.is_set() or state.acceptance is not None or state.delivery is not None:
             return state, False
@@ -4427,13 +4425,18 @@ class LongHorizonBenchmark:
             or not math.isfinite(float(remaining))
         ):
             return state, False
+        previous = _bench_progress(state).get("review_quota_worker_repair", {})
+        _, epoch = self._review_admissions.worker_progress(state, snapshot["calls"])
+        stalled_repairs = (previous.get("consecutive_stalls", previous.get("rounds_completed", 0))
+                           if previous.get("progress_epoch", 0) == epoch else 0)
+        previous_rounds = list(previous.get("rounds", []))
         finish_reserve = self._args.finish_reserve_seconds
         worker_round = worker_repair_round_seconds(snapshot)
         if not worker_repair_allowed(
             remaining_seconds=float(remaining),
             finish_reserve_seconds=finish_reserve,
             worker_round_seconds=worker_round,
-            rounds_completed=0,
+            rounds_completed=stalled_repairs,
         ):
             return state, False
         review = state.review
@@ -4457,9 +4460,11 @@ class LongHorizonBenchmark:
             "soft_remaining_seconds_at_entry": round(max(0.0, float(window.deadline) - budget.clock()), 3),
             "finish_reserve_seconds": round(finish_reserve, 3),
             "worker_round_estimate_seconds": round(worker_round, 3),
-            "max_rounds": MAX_WORKER_REPAIR_ROUNDS,
-            "rounds": [],
-            "rounds_completed": 0,
+            "max_stalled_rounds": MAX_WORKER_REPAIR_ROUNDS,
+            "rounds": previous_rounds,
+            "rounds_completed": len(previous_rounds),
+            "consecutive_stalls": stalled_repairs,
+            "progress_epoch": epoch,
             "latest_review": {
                 "artifact": str(review.artifact),
                 "candidate_tree": review.candidate.tree,
@@ -4477,9 +4482,13 @@ class LongHorizonBenchmark:
             )
             last_passed = state if _public_passed(state) else last_passed
         rounds = cast(list[dict[str, object]], evidence["rounds"])
-        final_reason = "round_limit"
-        for round_number in range(1, MAX_WORKER_REPAIR_ROUNDS + 1):
+        while True:
+            round_number = len(rounds) + 1
             current = budget.snapshot()
+            _, before_epoch = self._review_admissions.worker_progress(state, current["calls"])
+            if stalled_repairs >= MAX_WORKER_REPAIR_ROUNDS:
+                final_reason = "repair_stalled"
+                break
             remaining_value = current.get("remaining_seconds")
             if (
                 isinstance(remaining_value, bool)
@@ -4488,7 +4497,7 @@ class LongHorizonBenchmark:
                     remaining_seconds=float(remaining_value),
                     finish_reserve_seconds=finish_reserve,
                     worker_round_seconds=worker_round,
-                    rounds_completed=round_number - 1,
+                    rounds_completed=stalled_repairs,
                 )
             ):
                 final_reason = "soft_deadline"
@@ -4499,12 +4508,8 @@ class LongHorizonBenchmark:
             if self._model_window_closed():
                 final_reason = "window_budget_exhausted"
                 break
-            implementations = sum(
-                call.get("purpose") == "implementation"
-                for call in cast(list[dict[str, object]], current.get("calls", []))
-            )
-            if self._args.max_turns is not None and implementations >= self._args.max_turns:
-                final_reason = "max_turns"
+            if self._implementation_stalled(state, budget):
+                final_reason = "implementation_stalled"
                 break
             deadline = budget.purpose_deadline(window, "implementation")
             role_stop = budget.stop_reason(deadline, purpose="implementation")
@@ -4536,8 +4541,10 @@ class LongHorizonBenchmark:
                 )
                 state = driver._observe(state)
             self._invocation.state = state
-            if self._stop_for_public_check(state):
-                final_reason = "public_check_unresolved"
+            unresolved = self._stop_for_public_check(state)
+            _, after_epoch = self._review_admissions.worker_progress(state, budget.snapshot()["calls"])
+            stalled_repairs = 0 if after_epoch > before_epoch else stalled_repairs + 1
+            evidence.update(consecutive_stalls=stalled_repairs, progress_epoch=after_epoch)
             passed = _public_passed(state)
             if passed:
                 last_passed = state
@@ -4564,13 +4571,17 @@ class LongHorizonBenchmark:
                 }
             )
             state = self._record_review_quota_repair(runtime, output, state, evidence)
-            if final_reason == "public_check_unresolved":
+            if unresolved:
+                final_reason = "public_check_unresolved"
                 break
             if stopped is not None:
                 final_reason = stopped
                 break
             if check_stop is not None:
                 final_reason = check_stop
+                break
+            if after_epoch > before_epoch:
+                final_reason = "review_reopened_on_progress"
                 break
         evidence["rounds_completed"] = len(rounds)
         exit_snapshot = budget.snapshot()
@@ -5610,7 +5621,13 @@ class LongHorizonBenchmark:
     def _require_same(
         self, state: WorkSnapshot, frozen: dict[str, object], binding: dict[str, object], profile: str
     ) -> None:
-        if state.advisory.get(self._plugin.spec.input_key) != frozen:
+        saved = state.advisory.get(self._plugin.spec.input_key)
+        if (isinstance(saved, dict) and "turn_budget_policy" not in saved
+                and frozen.get("turn_budget_policy") == "consecutive_stalls_v1"):
+            # Upgrade only the scheduler interpretation. All frozen input values,
+            # including the admitted spending cap, must still match.
+            saved = {**saved, "turn_budget_policy": "consecutive_stalls_v1"}
+        if saved != frozen:
             raise RuntimeContractError("existing trial uses different task, configuration or output inputs")
         if state.advisory.get(self._plugin.spec.configuration_key) != self._plugin.configuration(profile):
             raise RuntimeContractError("existing trial uses a different agent profile or workflow")

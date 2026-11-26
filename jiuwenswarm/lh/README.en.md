@@ -43,17 +43,21 @@ criterion IDs remain authoritative. A fresh Work starts with its own evidence.
 
 The shared recovery code also supports a caller that has confirmed the previous
 executor stopped and rotated the native session. It verifies the sealed P0 and
-the interrupted P1 operation before retrying within the original turn budget.
+the interrupted P1 operation before retrying under the original deadline and persisted stall count.
 Only the upstream external driver owns persistent session rotation. Ordinary
 native resumption reports an interrupted, unsealed P1 for inspection.
 
 ## Configuration
 
-- Suite defaults: 48-hour budget and 64 implementation turns. Benchmark defaults:
-  one hour and three turns. Explicit deadline-only mode remains supported.
+- Suite defaults to 48 hours and benchmark to one hour. Both run without a default lifetime Worker or role-call limit.
+- `--max-stalled-turns N` (also spelled `--max-turns N`) stops new Workers after N consecutive ineffective rounds.
+  A previously failing public check passing or an independent review narrowing the outstanding gaps resets the streak and reopens review.
+  Repeated observations and process restarts preserve the same streak. The Work ledger retains lifetime usage.
+- The explicit `--max-role-calls` spending cap and the original deadline still apply across resumes.
 - `--finish-reserve-seconds` and `--cutoff-at-unix` configure the finishing boundary.
 - `--review-diagnosis-limit` and `--review-acceptance-limit` set review fuses.
-- `--clarification-max-rounds` and `--clarification-budget-ratio` bound clarification.
+- `--clarification-max-rounds` counts consecutive unattended rounds with unresolved questions. A smaller outstanding set or a verified fix resets this count. The original clarification time share still applies.
+- `--early-audit-max-rounds` counts consecutive ineffective coverage repairs after early acceptance. Progress reopens repairs. A replacement must pass the public checks and receive fresh acceptance.
 - `--allow-user-interaction` preserves waiting for human answers; unattended runs
   use the suite's unresolved-question policy.
 - `--reviewer-uid` and `--reviewer-gid` select a dedicated reviewer identity for

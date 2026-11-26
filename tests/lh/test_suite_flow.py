@@ -468,9 +468,9 @@ async def test_failed_p1_exports_saved_p0_and_refuses_automatic_replay(tmp_path,
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("case", ["continue", "tampered-p0", "turn-limit"])
+@pytest.mark.parametrize("case", ["continue", "tampered-p0", "stall-limit"])
 async def test_rotated_p1_respects_the_sealed_p0_and_original_budget(tmp_path, git_repo_factory, case):
-    args = replace(trial(tmp_path, git_repo_factory), max_turns=2 if case == "turn-limit" else 4)
+    args = replace(trial(tmp_path, git_repo_factory), max_turns=1 if case == "stall-limit" else 2)
     calls = []
     first = await LongHorizonBenchmark(args, plugin=plugin(calls, fail_repair=True)).run()
     before = json.loads(first.selection.read_text())
@@ -500,7 +500,7 @@ async def test_rotated_p1_respects_the_sealed_p0_and_original_budget(tmp_path, g
         assert resumed.internal_failure and "not_auto_resumable" in after["internal_failure"]["detail"]
         assert not resumed_calls
     else:
-        assert after["stop_reason"] == "max_turns" and not after["delivered"]
+        assert after["stop_reason"] == "implementation_stalled" and not after["delivered"]
         assert not resumed_calls and after["budget"]["calls"] == before["budget"]["calls"]
 
 
@@ -542,24 +542,37 @@ def test_cli_suite_defaults_and_explicit_old_protocol():
     common = ["--task", "t.md", "--workdir", ".", "--output", "/tmp/output", "--task-id", "a", "--trial-id", "b"]
     suite = arguments_from_namespace(build_parser().parse_args(common))
     old = arguments_from_namespace(build_parser().parse_args(["--workflow", "benchmark", *common]))
-    assert (suite.workflow, suite.budget_seconds, suite.max_turns, suite.max_role_calls) == ("suite", 172800, 64, None)
-    assert (old.workflow, old.budget_seconds, old.max_turns, old.max_role_calls) == ("benchmark", 3600, 3, 32)
+    assert (suite.workflow, suite.budget_seconds, suite.max_turns, suite.max_role_calls) == ("suite", 172800, None, None)
+    assert (old.workflow, old.budget_seconds, old.max_turns, old.max_role_calls) == ("benchmark", 3600, None, None)
 
 
 @pytest.mark.asyncio
-async def test_suite_turn_limit_is_cumulative_on_resume(tmp_path, git_repo_factory):
+async def test_suite_stall_limit_is_durable_on_resume(tmp_path, git_repo_factory):
     args, calls = replace(trial(tmp_path, git_repo_factory), max_turns=2), []
     first = await LongHorizonBenchmark(args, plugin=plugin(calls, p1_ready=False)).run()
     report = json.loads(first.selection.read_text())
-    assert report["stop_reason"] == "max_turns"
+    assert report["stop_reason"] == "implementation_stalled"
     assert report["long_horizon"]["phase"] == "first_review_done"
-    assert len([call for call in report["budget"]["calls"] if call["purpose"] == "implementation"]) == 2
+    implementations = [call for call in report["budget"]["calls"] if call["purpose"] == "implementation"]
+    assert len(implementations) > args.max_turns
+    ledger = json.loads((args.workdir / ".pact/bench/trials/suite-trial/review-admissions.json").read_text())
+    assert ledger["round_window"]["stalled"] == args.max_turns
     before = len(calls)
     second = await LongHorizonBenchmark(
         replace(args, work_id=report["work_id"], expected_revision=report["revision"]), plugin=plugin(calls)
     ).run()
     assert not second.internal_failure
     assert len(calls) == before
+
+
+@pytest.mark.asyncio
+async def test_productive_suite_can_finish_past_the_requested_stall_limit(tmp_path, git_repo_factory):
+    args = replace(trial(tmp_path, git_repo_factory), max_turns=2)
+    outcome = await LongHorizonBenchmark(args, plugin=plugin([], p1_ready=False, later_ready=True)).run()
+    report = json.loads(outcome.selection.read_text())
+    assert not outcome.internal_failure and report["delivered"] and report["internal_accepted"]
+    assert sum(c["purpose"] == "implementation" for c in report["budget"]["calls"]) == 3
+    assert report["budget"]["deadline"] == report["budget"]["started_at"] + args.budget_seconds
 
 
 @pytest.mark.asyncio

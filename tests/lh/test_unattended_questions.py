@@ -284,7 +284,7 @@ async def test_early_audit_triggers_after_unattended_resolution(tmp_path, git_re
 
 @pytest.mark.parametrize("backend", ["chrys", "jiuwenswarm"])
 @pytest.mark.asyncio
-async def test_clarification_round_limit_falls_back_to_assumption_and_continues(tmp_path, git_repo_factory, backend):
+async def test_verified_worker_fix_reopens_question_resolution(tmp_path, git_repo_factory, backend):
     state = {
         "resolution_replies": [
             {
@@ -299,18 +299,18 @@ async def test_clarification_round_limit_falls_back_to_assumption_and_continues(
         git_repo_factory,
         backend,
         state,
-        clarification_max_rounds=2,
+        clarification_max_rounds=1,
     )
 
     assert not outcome.internal_failure, selection["internal_failure"]
     assert selection["internal_accepted"] and selection["delivered"]
-    # One initial clarification plus one unattended resolution reaches the cap.
-    assert state["resolution_calls"] == 1
+    # The Worker fixed a failing public check, so the next decision goes to
+    # the resolver even though the consecutive-stall limit is one.
+    assert state["resolution_calls"] == 2
     assert state["worker"] >= 2
     assert selection["long_horizon"]["assumptions"]
-    assert any(
-        round_.get("clarification_status") == "clarification_round_limit"
-        for round_ in selection["long_horizon"]["resolution_rounds"]
+    assert all(
+        round_["clarification_status"] == "completed" for round_ in selection["long_horizon"]["resolution_rounds"]
     )
     assert work.acceptance is not None and work.unresolved_assumptions == ()
     assert (args.workdir / "greeting.txt").read_text() == "hello\n"

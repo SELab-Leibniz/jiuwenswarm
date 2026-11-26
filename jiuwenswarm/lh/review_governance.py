@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 import math
 import re
 from dataclasses import dataclass
@@ -241,6 +242,30 @@ def extract_gap_ids(review_text: str) -> list[str]:
             if gap_id and gap_id not in ids:
                 ids.append(gap_id)
     return ids
+
+
+def structured_review_gaps(artifact: Path) -> list[str] | None:
+    """Read a complete structured gap list. Missing or malformed evidence cannot close a gap."""
+    try:
+        text = Path(artifact).read_text(encoding="utf-8")
+        blocks = list(_GAP_BLOCK.finditer(text))
+        if len(blocks) != 1:
+            return None
+        rows = json.loads(blocks[0].group(1))
+    except (OSError, UnicodeError, ValueError):
+        return None
+    if not isinstance(rows, list):
+        return None
+    gaps = []
+    for row in rows:
+        if not isinstance(row, (dict, str)):
+            return None
+        values = _gap_values(row)
+        gap = normalize_gap_id(values[0]) if values else ""
+        if not gap:
+            return None
+        gaps.append(gap)
+    return sorted(set(gaps))
 
 
 def has_structured_gap_block(review_text: str) -> bool:

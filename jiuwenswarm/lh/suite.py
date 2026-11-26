@@ -651,13 +651,6 @@ def _repair_recovery_record(
     }
 
 
-def _implementation_turn_limit_reached(controller: Any, budget: Any) -> bool:
-    limit = getattr(controller._args, "max_turns", None)
-    return limit is not None and sum(
-        call.get("purpose") == "implementation" for call in budget.snapshot()["calls"]
-    ) >= limit
-
-
 def _run_repair_bounded(
     controller: Any, runtime: Any, output: Path, turn_root: Path, budget: Any, window: Any, state: Any
 ):
@@ -811,12 +804,12 @@ def _run_repair_bounded(
                 attempt_records=attempt_records,
             )
             break
-        if _implementation_turn_limit_reached(controller, budget):
+        if controller._implementation_stalled(state, budget):
             recovery = _repair_recovery_record(
                 attempts=recovery_attempts,
                 max_attempts=max_attempts,
                 minimum_seconds=minimum_seconds,
-                outcome="turn_limit",
+                outcome="implementation_stalled",
                 incomplete=True,
                 attempt_records=attempt_records,
             )
@@ -1522,8 +1515,8 @@ def run_repair(controller: Any, runtime: Any, output: Path, turn_root: Path, bud
             raise RuntimeStateError(
                 "not_auto_resumable: repair started without a sealed P1; inspect the retained operation"
             )
-        if _implementation_turn_limit_reached(controller, budget):
-            controller._invocation.stop_reason = "max_turns"
+        if controller._implementation_stalled(state, budget):
+            controller._invocation.stop_reason = "implementation_stalled"
             return state, False
         _validate_saved_p0(controller, output, state)
     implementation = _run_repair_bounded if controller._phase_policy is not None else _run_repair_legacy

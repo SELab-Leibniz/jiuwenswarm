@@ -65,12 +65,14 @@ def build_parser(prog: str = "jiuwenswarm --lh") -> argparse.ArgumentParser:
     parser.add_argument("--reviewer-gid", type=int)
     parser.add_argument("--review-diagnosis-limit", type=int)
     parser.add_argument("--review-acceptance-limit", type=int)
-    parser.add_argument("--early-audit-max-rounds", type=int, default=2)
+    parser.add_argument("--early-audit-max-rounds", type=int, default=2,
+                        help="Consecutive ineffective coverage repairs allowed after early acceptance (0 disables the audit)")
     parser.add_argument("--early-audit-min-remaining-ratio", type=float, default=0.40)
     parser.add_argument("--early-audit-min-remaining-seconds", type=float, default=2700.0)
     parser.add_argument("--early-audit-max-seconds", type=float)
     parser.add_argument("--allow-user-interaction", action="store_true")
-    parser.add_argument("--clarification-max-rounds", type=int, default=3)
+    parser.add_argument("--clarification-max-rounds", type=int, default=3,
+                        help="Consecutive unattended rounds with the same unresolved questions")
     parser.add_argument("--clarification-budget-ratio", type=float, default=0.20)
     parser.add_argument(
         "--control-profile",
@@ -84,9 +86,10 @@ def build_parser(prog: str = "jiuwenswarm --lh") -> argparse.ArgumentParser:
         help="Allow one evidence-bound fresh Jiuwen Worker call within the original trial budget; default off",
     )
     parser.add_argument("--snapshot-max-total-bytes", type=int, default=DEFAULT_SNAPSHOT_MAX_TOTAL_BYTES)
-    parser.add_argument("--max-role-calls", type=int)
+    parser.add_argument("--max-role-calls", type=int, help="Explicit hard spending cap for role calls (default: no cap)")
     turns = parser.add_mutually_exclusive_group()
-    turns.add_argument("--max-turns", type=int)
+    turns.add_argument("--max-stalled-turns", "--max-turns", dest="max_turns", type=int,
+                      help="Stop after N consecutive ineffective implementation rounds; verified progress resets the count")
     turns.add_argument(
         "--deadline-only-turns",
         action="store_true",
@@ -177,8 +180,8 @@ def arguments_from_namespace(options: argparse.Namespace) -> Any:
         allow_user_interaction=options.allow_user_interaction,
         clarification_max_rounds=options.clarification_max_rounds,
         clarification_budget_ratio=options.clarification_budget_ratio,
-        max_role_calls=options.max_role_calls if options.max_role_calls is not None else None if suite else 32,
-        max_turns=None if deadline_only else options.max_turns if options.max_turns is not None else 64 if suite else 3,
+        max_role_calls=options.max_role_calls,
+        max_turns=options.max_turns,
         deadline_only_budget_seconds=options.budget_seconds if deadline_only else None,
         turn_timeout_seconds=(
             options.budget_seconds

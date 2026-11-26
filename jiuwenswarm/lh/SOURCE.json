@@ -83,7 +83,8 @@
     "Tests use explicit asyncio markers, embedded package/fixture paths and fake-native startup for protocol controls.",
     "Admit the native template's documented browser credential variable names and bind their resolved environment to session continuation.",
     "Embed the modern WorkRuntime source under jiuwenswarm.pact_core for both suite and benchmark. Internal imports use the package namespace. Keep upstream schema identifiers and resource bytes. Retire the standalone Campaign command and its dedicated adapter.",
-    "On explicit native suite resume, derive the advisory regression handoff from the same Work's current verified candidate; deliver it through the native Worker admission. Persistent SDK session rotation and its cross-Work event ledger stay upstream."
+    "On explicit native suite resume, derive the advisory regression handoff from the same Work's current verified candidate; deliver it through the native Worker admission. Persistent SDK session rotation and its cross-Work event ledger stay upstream.",
+    "Use consecutive, Work-bound stall counters for implementation, clarification and review. Keep lifetime usage and the original admission deadline across resumes."
   ],
   "companion_wheels": {
     "pathspec": {
@@ -149,7 +150,7 @@
       "source_sha256": "44677172410af83a0abf12805fd5792d931d18273bbabe2421648481a74211a6"
     },
     "jiuwenswarm/lh/cli.py": {
-      "sha256": "096285529ccb7cc08bfa821c8955b4d3329b98dacaff2406cd834d59b59270bd",
+      "sha256": "fcf30bc39a2e7d1f36ad713188dc64d097c74b690066363d36bce5b205cee088",
       "source": "src/long_horizon/cli.py",
       "source_sha256": "0b14fa97f39c9537f6a0194be3c6e553f0812fbb98c5b011a1e85e9239d9300d"
     },
@@ -164,7 +165,7 @@
       "source_sha256": "a2ada25efb4c34b53ce977cf30500ae8671e5bd2d6a07e20ea10a2bc94a74484"
     },
     "jiuwenswarm/lh/controller.py": {
-      "sha256": "e49d26d2ce87cd1fc3d31844ec7a13c3ede16ee844888fe09f80618533dc74f4",
+      "sha256": "e8ac99bc29c9ce945c4f1ecea12bca61427d0bd00e5bd67502bd827afef5ac8a",
       "source": "src/long_horizon/controller.py",
       "source_sha256": "a2a623bbcc31fb6a9b36bf245bc7bee34d4ea6a2033c15a96786ef62082a3471"
     },
@@ -299,7 +300,7 @@
       "source_sha256": "f1edc7cc871e98fd734334608e8aa808d07e52064737898c926edf9649ef297e"
     },
     "jiuwenswarm/lh/progress.py": {
-      "sha256": "5bc9f374ba4897e324e1f51c63ae379dc4237991e797a095ffb6de6bba4a7c97",
+      "sha256": "4964f32bb991199658d7d5057a701b429fc8e1ea4098ff953f49f2a2bd244eeb",
       "source": "src/long_horizon/progress.py",
       "source_sha256": "5bc9f374ba4897e324e1f51c63ae379dc4237991e797a095ffb6de6bba4a7c97"
     },
@@ -329,12 +330,12 @@
       "source_sha256": "66b1bea5c7fdde643d139745083d7e3742dc929ff1a28d35f7c5a2f478a141b1"
     },
     "jiuwenswarm/lh/review_admissions.py": {
-      "sha256": "b4f8ca6a49afa13bd7561bd8fa25fe5e55dc37c0f75dce9b14c4556f3fe095c9",
+      "sha256": "3272b7f6f3527cc95aade0afe45c1a759ae95b23e0e3b970f96fa82d7a99e884",
       "source": "src/long_horizon/review_admissions.py",
       "source_sha256": "e24666873d376832db7c48f0dff0988bbe7bd87ea582ca004663470b2fc909b1"
     },
     "jiuwenswarm/lh/review_governance.py": {
-      "sha256": "7c6f53c168ed110d6fd959274379e978ef1a3ffdf2faae268ed18fe94927c81e",
+      "sha256": "98b3086d02383901d2d315a827616e3ffcf35971c4ab67d7feb28694a81e03f5",
       "source": "src/long_horizon/review_governance.py",
       "source_sha256": "7c6f53c168ed110d6fd959274379e978ef1a3ffdf2faae268ed18fe94927c81e"
     },
@@ -358,6 +359,9 @@
       "source": "src/long_horizon/reviewer_privilege.py",
       "source_sha256": "04cad14f69cc74760a930606b8144188f8a8665403cf31f4d06769c754fce3a3"
     },
+    "jiuwenswarm/lh/round_progress.py": {
+      "sha256": "67351d15dfb32d029b453692770ca1e764d6c4bd1faf241cbbf36135280968a5"
+    },
     "jiuwenswarm/lh/run_json.py": {
       "sha256": "ead3d21671c7fbccb995a68f729db7eb14f0ce476c7bcc41d56658269f43eddc"
     },
@@ -377,7 +381,7 @@
       "source_sha256": "75159a820e82dd918c3c694ebe6639c425accc8854cbe2d5e17a6b8afcf4c0af"
     },
     "jiuwenswarm/lh/suite.py": {
-      "sha256": "be948f8d127949eb229028e900595b2e7c31dee485414f7b0a72e5e142017a56",
+      "sha256": "fc055d8844fdb6e94bde961efeb95de09bbd5faf01eda46f54413dcbe1d02d62",
       "source": "src/long_horizon/suite.py",
       "source_sha256": "bbcc073b2a38499294d076c0153a1c05c0614b5d15e481ae10ab8de9e60d9f7b"
     },

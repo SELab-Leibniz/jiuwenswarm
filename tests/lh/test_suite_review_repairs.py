@@ -171,20 +171,12 @@ async def test_real_core_one_review_is_not_recounted_at_long_review_interval(tmp
     )
     outcome = await LongHorizonBenchmark(args, plugin=configured).run()
     report = json.loads(outcome.selection.read_text())
-    print(
-        "DEBUG",
-        outcome.stop_reason,
-        report.get("stop_reason"),
-        json.loads((args.workdir / ".pact/bench/trials/suite-trial/review-admissions.json").read_text())
-        if (args.workdir / ".pact/bench/trials/suite-trial/review-admissions.json").exists()
-        else None,
-    )
     assert not outcome.internal_failure, report["internal_failure"]
-    assert report["stop_reason"] == "max_turns"
+    assert report["stop_reason"] == "implementation_stalled"
     assert not (args.output / "no-progress-stop.json").exists()
     implementations = [row for row in report["budget"]["calls"] if row["purpose"] == "implementation"]
     reviews = [row for row in report["budget"]["calls"] if row["purpose"] == "feedback"]
-    assert len(implementations) == 5
+    assert len(implementations) >= args.max_turns
     assert len(reviews) == 1
     assert reviews[0]["status"] == ("output_missing" if missing else "completed")
     assert not report["internal_accepted"]
@@ -223,8 +215,8 @@ async def test_real_core_pauses_repeat_diagnosis_after_two_evidence_free_rounds(
     report = json.loads(outcome.selection.read_text())
     assert not outcome.internal_failure, report["internal_failure"]
     # Two evidence-free diagnostics pause diagnosis; the retained repair path
-    # then runs to the explicit turn cap instead of spending another review.
-    assert report["stop_reason"] == "max_turns"
+    # then stops after consecutive ineffective Worker rounds.
+    assert report["stop_reason"] == "implementation_stalled"
     admissions = json.loads((args.workdir / ".pact/bench/trials/suite-trial/review-admissions.json").read_text())
     assert admissions["trial"] == 2
     [counted] = admissions["keys"].values()

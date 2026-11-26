@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .round_progress import observe_gap_change, observe_verification
 from .review_governance import (
     DIAGNOSIS_PAUSE_ROUNDS,
     PROGRESSION_STOP_ROUNDS,
@@ -23,6 +24,7 @@ from .review_governance import (
     extract_text_gap_ids,
     failed_check_count,
     has_structured_gap_block,
+    structured_review_gaps,
     verification_signature,
 )
 
@@ -46,8 +48,9 @@ class ReviewProgressGuard:
     _seen_gaps: set[str] = field(default_factory=set)
     _last_gaps: list[str] = field(default_factory=list)
     _last_failed: int = 0
-    _last_verification: tuple[Any, ...] = ()
-    _last_inputs: tuple[Any, ...] = ()
+    _verification_history: dict[str, Any] = field(default_factory=dict)
+    _last_inputs: str | None = None
+    _epoch: int = 0
     _last_tree: str | None = None
     _no_progress_rounds: int = 0
     _same_gap_rounds: int = 0
@@ -69,6 +72,17 @@ class ReviewProgressGuard:
     @property
     def diagnosis_paused(self) -> bool:
         return self._diagnosis_paused
+
+    def recover(self, epoch: int) -> None:
+        """Reopen review after a new, Work-bound verification or gap-closure receipt."""
+        if epoch <= self._epoch:
+            return
+        self._epoch = epoch
+        self._stop_reason = None
+        self._diagnosis_paused = False
+        self._protocol_streak = self._diagnosis_streak = 0
+        self._same_gap_rounds = self._no_progress_rounds = 0
+        self._persist_if_changed(False)
 
     def observe(self, state: Any, completed_workers: int, *, purpose: str | None = None) -> bool:
         review = state.review
@@ -111,9 +125,7 @@ class ReviewProgressGuard:
         gaps = extract_gap_ids(review_text) if structured_gaps else extract_text_gap_ids(review_text)
         failed = failed_check_count(state)
         verification = verification_signature(state)
-        check_improved = failed < self._last_failed or (
-            verification and verification[0] == "passed" and self._last_verification[:1] != ("passed",)
-        )
+        check_improved = observe_verification(self._verification_history, state)
         inputs = (
             state.contract_revision,
             json.dumps(state.contract, sort_keys=True, default=str),
@@ -122,33 +134,42 @@ class ReviewProgressGuard:
             tuple(state.unresolved_assumptions),
             tuple(state.user_decisions),
         )
-        inputs_changed = bool(self._last_inputs) and inputs != self._last_inputs
-        self._last_inputs = inputs
+        input_digest = hashlib.sha256(json.dumps(inputs, sort_keys=True, default=str).encode()).hexdigest()
+        inputs_changed = bool(self._last_inputs) and input_digest != self._last_inputs
+        self._last_inputs = input_digest
         tree_changed = self._last_tree is not None and state.candidate.tree != self._last_tree
         new_gaps = [gap for gap in gaps if gap not in self._seen_gaps]
         closed_gaps = [gap for gap in self._last_gaps if gap not in gaps]
-        # Without a structured gap block, the fallback list/heading identities
-        # are the gap-text evidence. Candidate-tree changes and check
-        # improvements remain independently verifiable progress signals.
-        progressed = bool(new_gaps or closed_gaps or check_improved or inputs_changed or tree_changed)
+        # Free-form feedback and new inputs can distinguish a fresh review.
+        # Only comparable check results or a strict contraction of structured gaps earn a reset.
+        narrowed = observe_gap_change(self._verification_history, state.contract_revision, structured_review_gaps(review.artifact))
+        advanced = check_improved or narrowed
+        changed = bool(new_gaps or closed_gaps or inputs_changed or tree_changed)
         self._seen_gaps.update(gaps)
-        if gaps and set(gaps) == set(self._last_gaps):
+        if advanced:
+            self._stop_reason = None
+            self._diagnosis_paused = False
+            self._diagnosis_streak = self._no_progress_rounds = self._same_gap_rounds = 0
+        elif gaps and set(gaps) == set(self._last_gaps):
             self._same_gap_rounds += 1
         elif gaps:
             self._same_gap_rounds = 1
         else:
             self._same_gap_rounds = 0
-        self._no_progress_rounds = 0 if progressed else self._no_progress_rounds + 1
+        if not advanced and not changed:
+            self._no_progress_rounds += 1
         if purpose == "diagnostic":
-            self._diagnosis_streak = 0 if progressed else self._diagnosis_streak + 1
+            if not advanced and not changed:
+                self._diagnosis_streak += 1
             if self._diagnosis_streak >= DIAGNOSIS_PAUSE_ROUNDS:
                 self._diagnosis_paused = True
         else:
             self._diagnosis_streak = 0
         self._protocol_streak = 0
+        if self._stop_reason == "review_protocol_stalled":
+            self._stop_reason = None
         self._last_gaps = list(gaps)
         self._last_failed = failed
-        self._last_verification = verification
         self._last_tree = state.candidate.tree
         self._last_completed_workers = completed_workers
         self._seen_reviews.add(review_id)
@@ -204,7 +225,7 @@ class ReviewProgressGuard:
             # the caller should spend the remaining time on an executable
             # repair. Protocol stalls are still handled above/invalid reviews.
             return self._persist_if_changed(False)
-        if self._same_gap_rounds >= PROGRESSION_STOP_ROUNDS and not progressed:
+        if self._same_gap_rounds >= PROGRESSION_STOP_ROUNDS and not advanced and not changed:
             self._stop_reason = "review_no_progress_same_gap"
         elif self._no_progress_rounds >= PROGRESSION_STOP_ROUNDS:
             self._stop_reason = "review_no_progress"
@@ -287,11 +308,19 @@ class ReviewProgressGuard:
         seen = value.get("seen_reviews")
         if isinstance(seen, list):
             self._seen_reviews = {item for item in seen if isinstance(item, str)}
+        self._epoch = int(value.get("progress_epoch", 0))
+        self._last_inputs = value.get("last_input_digest")
+        history = value.get("verification_history")
+        if isinstance(history, dict):
+            self._verification_history = history
         self._initialized = True
 
     def _snapshot(self) -> dict[str, Any]:
         return {
             "schema": _SCHEMA,
+            "progress_epoch": self._epoch,
+            "last_input_digest": self._last_inputs,
+            "verification_history": self._verification_history,
             "stop_reason": self._stop_reason,
             "diagnosis_paused": self._diagnosis_paused,
             "no_progress_rounds": self._no_progress_rounds,
@@ -326,9 +355,8 @@ class ReviewProgressGuard:
         return {
             "schema": _SCHEMA,
             "policy": (
-                "stop only after three effective rejections without candidate-tree change, check improvement, "
-                "new/closed structured gaps, or changed list/heading gap fingerprints; or one blocking gap "
-                "repeating for three rounds; pause diagnosis after two evidence-free rounds"
+                "pause diagnosis after two evidence-free rounds and stop after three ineffective rejections; "
+                "a verified check improvement or a strictly smaller set of reviewed gaps restores the counters"
             ),
             "review_interval": self.review_interval,
             "reviewed_inputs": list(self._reviews),

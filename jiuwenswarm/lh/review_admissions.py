@@ -32,7 +32,10 @@ from typing import Any, Callable, Iterator
 from jiuwenswarm.pact_core.artifacts import write_json_atomic
 from jiuwenswarm.pact_core.runtime import RuntimeStateError
 
+from .round_progress import observe_round
+
 SCHEMA_V1 = "long-horizon/review-admissions/v1"
+
 SCHEMA = "long-horizon/review-admissions/v2"
 DIAGNOSIS = "diagnosis"
 ACCEPTANCE = "acceptance"
@@ -47,6 +50,7 @@ MAX_DIAGNOSIS_LIMIT = 64
 MIN_ACCEPTANCE_LIMIT = 32
 MAX_ACCEPTANCE_LIMIT = 32
 _MAX_REFUSALS = 32
+_ARCHIVE_INPUTS = 64
 _LOCK_POLL_SECONDS = 0.01
 
 FUSE_REASON = "review_fuse_reached"
@@ -77,7 +81,7 @@ def default_review_limits(budget_seconds: float | None) -> tuple[int, int]:
 def acceptance_quota_spent(payload: dict[str, Any]) -> bool:
     """Return whether the acceptance fuse is spent (legacy name)."""
     try:
-        count = payload["purposes"][ACCEPTANCE]["count"]
+        count = payload.get("consecutive", {}).get(ACCEPTANCE, payload["purposes"][ACCEPTANCE]["count"])
         limit = payload["limits"][ACCEPTANCE]
     except (KeyError, TypeError):
         return False
@@ -241,7 +245,10 @@ class ReviewAdmissions:
 
     @staticmethod
     def _purpose_counts_in(value: dict[str, Any]) -> dict[str, int]:
-        counts = {DIAGNOSIS: 0, ACCEPTANCE: 0}
+        archived = value.get("archived_purposes", {})
+        if not isinstance(archived, dict) or any(type(n) is not int or n < 0 for n in archived.values()):
+            raise RuntimeStateError("archived review admission counts are invalid")
+        counts = {category: archived.get(category, 0) for category in (DIAGNOSIS, ACCEPTANCE)}
         for row in value["keys"].values():
             for category, purpose_row in row["purposes"].items():
                 counts[category] += purpose_row["count"]
@@ -359,6 +366,57 @@ class ReviewAdmissions:
         }
         write_json_atomic(self.path, json.loads(json.dumps(self._value, default=str, sort_keys=True)))
 
+    def _observe(
+        self, state: Any, workers: int | None = None, *, failed: bool = False, coverage_gaps: list[str] | None = None
+    ) -> None:
+        if not hasattr(state, "work_id") or not hasattr(state, "revision"):
+            return
+        if self._identity and self._identity.get("work_id") not in (None, state.work_id):
+            raise RuntimeStateError("round progress belongs to a different Work")
+        window = self._value.setdefault("round_window", {})
+        if observe_round(window, state, workers, failed=failed, coverage_gaps=coverage_gaps):
+            window["purpose_baseline"] = self._purpose_counts()
+            # A long, productive Work must not outgrow the live ledger's read limit.
+            # These rows are no longer used by same-input admission after a reset.
+            keys = self._value["keys"]
+            if len(keys) >= _ARCHIVE_INPUTS:
+                archive = self.path.with_name(f"{self.path.stem}.inputs-{self._value['trial']}.json")
+                record = {
+                    "schema": "long-horizon/review-input-archive/v1",
+                    "identity": self._identity,
+                    "through_admission": self._value["trial"],
+                    "keys": keys,
+                }
+                if archive.is_symlink():
+                    raise RuntimeStateError("review input archive is a symlink")
+                if archive.exists():
+                    if json.loads(archive.read_bytes()) != record:
+                        raise RuntimeStateError("review input archive conflicts with the current ledger")
+                else:
+                    write_json_atomic(archive, record)
+                self._value["archived_purposes"] = dict(window["purpose_baseline"])
+                self._value["keys"] = {}
+
+    def _consecutive_counts(self) -> dict[str, int]:
+        baseline = self._value.get("round_window", {}).get("purpose_baseline", {})
+        return {key: total - baseline.get(key, 0) for key, total in self._purpose_counts().items()}
+
+    def worker_progress(
+        self, state: Any, calls: list[dict[str, Any]], *, coverage_gaps: list[str] | None = None
+    ) -> tuple[int, int]:
+        """Observe a finished Worker at most once, including across an explicit resume."""
+        workers = [row for row in calls if row.get("purpose") == "implementation" and row.get("status") != "started"]
+        failed = bool(workers and workers[-1].get("status") != "completed")
+        with self._lock, self._file_lock():
+            self._reload()
+            window = self._value.get("round_window", {})
+            before = {**window, "coverage": dict(window["coverage"])} if "coverage" in window else dict(window)
+            self._observe(state, len(workers), failed=failed, coverage_gaps=coverage_gaps)
+            window = self._value.get("round_window", {})
+            if before != window:
+                self._write()
+            return window.get("stalled", 0), window.get("epoch", 0)
+
     def admit(
         self,
         state: Any,
@@ -368,16 +426,29 @@ class ReviewAdmissions:
         force: bool = False,
         check: Callable[[], str | None] | None = None,
     ) -> dict[str, Any]:
-        """Reserve one purpose-specific Reviewer attempt; never reset counts."""
+        """Reserve a Reviewer attempt within the current progress window."""
         key, material = self.key(state)
         category = _category(purpose)
         with self._lock, self._file_lock():
             self._reload()
-            counts = self._purpose_counts()
+            self._observe(state)
+            counts = self._consecutive_counts()
+            trial = self._value["trial"]
+            row = self._value["keys"].get(key, {
+                "count": 0, "tree": material["tree"], "contract_revision": material["contract_revision"],
+            })
+            self._migrate_row(row)
+            purpose_row = row["purposes"].get(category, {"count": 0})
+            epoch = self._value.get("round_window", {}).get("epoch", 0)
+            same_input = (
+                purpose_row.get("consecutive", purpose_row["count"])
+                if purpose_row.get("epoch", 0) == epoch else 0
+            )
             # A budget stop may expire while this admission waits for the lock.
             # Re-evaluate it under the lock before charging the durable ledger.
             stopped = check() if check is not None else None
             if stopped:
+                self._write()
                 return {
                     "admitted": False,
                     "reason": stopped,
@@ -386,11 +457,7 @@ class ReviewAdmissions:
                     "category": category,
                     "input_sha256": key,
                     "trial": self._value["trial"],
-                    "same_input": self._value["keys"]
-                    .get(key, {})
-                    .get("purposes", {})
-                    .get(category, {})
-                    .get("count", 0),
+                    "same_input": same_input,
                     "trial_limit": self.diagnosis_limit,
                     "diagnosis": counts[DIAGNOSIS],
                     "diagnosis_limit": self.diagnosis_limit,
@@ -402,10 +469,6 @@ class ReviewAdmissions:
                     "purpose_remaining": max(0, self._limit(category) - counts[category]),
                     "same_input_limit": self.same_input_limit,
                 }
-            trial = self._value["trial"]
-            row = self._value["keys"].get(key, {"count": 0, **material})
-            self._migrate_row(row)
-            purpose_row = row["purposes"].get(category, {"count": 0})
             purpose_count = counts[category]
             purpose_limit = self._limit(category)
             admission_id: str | None = None
@@ -414,7 +477,7 @@ class ReviewAdmissions:
                 reason = f"{category}_fuse"
                 admitted = False
                 stop = FUSE_REASON
-            elif purpose_row["count"] >= self.same_input_limit:
+            elif same_input >= self.same_input_limit:
                 reason = "same_input_limit"
                 admitted = False
                 stop = "review_limit_reached"
@@ -424,7 +487,8 @@ class ReviewAdmissions:
                 admission_id = uuid.uuid4().hex
                 self._value["trial"] = trial + 1
                 row["count"] = row["count"] + 1
-                purpose_row.update(count=purpose_row["count"] + 1, last_purpose=purpose, last_full=bool(full))
+                same_input += 1
+                purpose_row.update(epoch=epoch, consecutive=same_input, count=purpose_row["count"] + 1, last_purpose=purpose, last_full=bool(full))
                 row["purposes"][category] = purpose_row
                 self._value["keys"][key] = row
                 admissions = list(self._value.get("admissions", []))
@@ -466,7 +530,7 @@ class ReviewAdmissions:
                 "category": category,
                 "input_sha256": key,
                 "trial": self._value["trial"],
-                "same_input": purpose_row["count"],
+                "same_input": same_input,
                 "trial_limit": self.diagnosis_limit,
                 "diagnosis": counts[DIAGNOSIS],
                 "diagnosis_limit": self.diagnosis_limit,
@@ -483,6 +547,7 @@ class ReviewAdmissions:
         with self._lock, self._file_lock():
             self._reload()
             value = json.loads(json.dumps(self._value, default=str, sort_keys=True))
+            value["consecutive"] = self._consecutive_counts()
             value["limits"] = {
                 DIAGNOSIS: self.diagnosis_limit,
                 ACCEPTANCE: self.acceptance_limit,

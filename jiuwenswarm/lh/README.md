@@ -21,7 +21,7 @@ suite 支持以下流程：
 和验收项 ID。新 Work 从自己的证据开始。
 
 共享恢复逻辑支持由调用方确认旧执行器已停止并已切换会话的情况。重试前会校验
-已封存的 P0 和中断的 P1 操作，并沿用原实施轮数预算。持久会话切换由上游
+已封存的 P0 和中断的 P1 操作，并恢复原截止时间与连续停滞记录。持久会话切换由上游
 external driver 管理。普通原生续跑遇到未封存的 P1 时会报告中断，供调用方检查。
 
 ## 入口
@@ -65,9 +65,17 @@ P1 → 审查与修复循环 → 验收与交付，由 PACT Core 管理公开检
 | `--config-template` | 当前激活的 `config.yaml`；必须不含明文密钥（用环境变量引用） |
 | `--budget-seconds` / `--timeout` | suite 48 小时，benchmark 1 小时 |
 
+两种模式默认按原截止时间运行，实施轮数和角色调用总数均无默认上限。
+`--max-stalled-turns N`（兼容拼写 `--max-turns N`）只限制连续无效的实施轮次。
+例如，原有公开检查从失败转为通过，或独立审查确认剩余缺口减少，会把停滞计数清零，
+并重新开放诊断和验收审查。相同的失败重复 N 轮后，控制器以
+`implementation_stalled` 停止派发 Worker。换树、重复读取同一回执和恢复会话本身都不会补充额度。
+累计调用、原截止时间以及调用方显式设置的 `--max-role-calls` 总开销上限保存在原 Work 账本里。
+
 `--finish-reserve-seconds` / `--cutoff-at-unix` 绑定交付时间边界；
 `--review-diagnosis-limit` / `--review-acceptance-limit` 设置审查熔断上限；
-`--clarification-max-rounds` / `--clarification-budget-ratio` 控制澄清预算。
+`--clarification-max-rounds` 限制无人值守下连续未解的问题轮次。待解决问题减少或修复通过检查会清零该计数，澄清时间仍受 `--clarification-budget-ratio` 约束。
+`--early-audit-max-rounds` 限制早期验收后连续无效的覆盖修复轮次。新的进展会恢复审查和修复额度，替换已验收候选仍需通过公开检查和新一轮验收。
 无人值守时默认按 suite 策略处理未决问题，`--allow-user-interaction` 保留人工答复等待。
 Linux root 环境下可通过 `--reviewer-uid` / `--reviewer-gid` 配置专用 Reviewer 身份。
 
