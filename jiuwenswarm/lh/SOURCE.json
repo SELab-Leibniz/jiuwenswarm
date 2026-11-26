@@ -1,8 +1,8 @@
 {
   "schema": "jiuwenswarm/lh-suite-source/v1",
   "repository": "https://github.com/SELab-Leibniz/long-horizon-controller",
-  "revision": "732f3640546334a3730b5c6ae408680a17dd325f",
-  "previous_revision": "ccb4adc6ab3bf1e592db978603a0a165ae3c2c47",
+  "revision": "bdf12e3db614becd77084a978f54368eb3e2c77c",
+  "previous_revision": "732f3640546334a3730b5c6ae408680a17dd325f",
   "pact_core": {
     "version": "0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1",
     "wheel": "vendor/pact_core-0.2.0.dev0+bytes1.deadline1.turns1.checklifecycle1-py3-none-any.whl",
@@ -82,7 +82,8 @@
     "Keep MemGraph naming and disabled default, native transport retry rail and public-test write guard.",
     "Tests use explicit asyncio markers, embedded package/fixture paths and fake-native startup for protocol controls.",
     "Admit the native template's documented browser credential variable names and bind their resolved environment to session continuation.",
-    "Embed the modern WorkRuntime source under jiuwenswarm.pact_core for both suite and benchmark. Internal imports use the package namespace. Keep upstream schema identifiers and resource bytes. Retire the standalone Campaign command and its dedicated adapter."
+    "Embed the modern WorkRuntime source under jiuwenswarm.pact_core for both suite and benchmark. Internal imports use the package namespace. Keep upstream schema identifiers and resource bytes. Retire the standalone Campaign command and its dedicated adapter.",
+    "On explicit native suite resume, derive the advisory regression handoff from the same Work's current verified candidate; deliver it through the native Worker admission. Persistent SDK session rotation and its cross-Work event ledger stay upstream."
   ],
   "companion_wheels": {
     "pathspec": {
@@ -150,7 +151,7 @@
     "jiuwenswarm/lh/cli.py": {
       "sha256": "096285529ccb7cc08bfa821c8955b4d3329b98dacaff2406cd834d59b59270bd",
       "source": "src/long_horizon/cli.py",
-      "source_sha256": "3f3ca594c13b7d95091c0151cb908d74d07654a8125a266049808dc104be427a"
+      "source_sha256": "0b14fa97f39c9537f6a0194be3c6e553f0812fbb98c5b011a1e85e9239d9300d"
     },
     "jiuwenswarm/lh/confirmed_behavior.py": {
       "sha256": "97a9867e6417fc9b163ed9f12d0729a681e875a2b4c4e2dfb43c2867ff9c3bb5",
@@ -163,9 +164,9 @@
       "source_sha256": "a2ada25efb4c34b53ce977cf30500ae8671e5bd2d6a07e20ea10a2bc94a74484"
     },
     "jiuwenswarm/lh/controller.py": {
-      "sha256": "0038de5838b23b297008f8cb57c362fafdb858c5ffe942ba2a9bbf252d2271dd",
+      "sha256": "e49d26d2ce87cd1fc3d31844ec7a13c3ede16ee844888fe09f80618533dc74f4",
       "source": "src/long_horizon/controller.py",
-      "source_sha256": "74aa2e39b2304e786109eb14bd875e315ee882571eb92972d4727b95b7782b39"
+      "source_sha256": "a2a623bbcc31fb6a9b36bf245bc7bee34d4ea6a2033c15a96786ef62082a3471"
     },
     "jiuwenswarm/lh/early_acceptance_audit.py": {
       "sha256": "03d4a1d7c70d6883f23cc7bc49b7f5cd333a09efe7eca703051ffdc05ac9b95e",
@@ -193,9 +194,9 @@
       "source_sha256": "c9f9002d40793107e8832eda152eb70f9e7ace418a3c0cc5518a9972a47bf652"
     },
     "jiuwenswarm/lh/harbor_unified/candidate_artifacts.py": {
-      "sha256": "1e8bbb2e717c78ee88f6693074fad1c5c8334cce458783ff0a8234c79537b639",
+      "sha256": "4c3ae299b7f89ba7106c44486a09dac6b6083d491c49d6cdcbff9158b12ca509",
       "source": "src/long_horizon/harbor_unified/candidate_artifacts.py",
-      "source_sha256": "683b1fbf788b5c273efe3da5f426f09b610f24b07d0fabe496de254aa9676dbb"
+      "source_sha256": "c14a7c00ee8b6d53a5bee725ee27c948f69690d28cccc465221bfdeef3e7222b"
     },
     "jiuwenswarm/lh/harbor_unified/delivery.py": {
       "sha256": "bf301b459c97e73da979282d484aef8f0e94b33b14a54739bd92b88d90511d84",
@@ -265,12 +266,12 @@
     "jiuwenswarm/lh/plugins/jiuwen.py": {
       "sha256": "b48577422f4f5a235770f6e14ed7655223fb1475184d669286919752cf2b909d",
       "source": "src/long_horizon/plugins/jiuwen.py",
-      "source_sha256": "e677bd1171934ea1fbb66ef435673f1463756505b9de6412f78ed54a4ee9bc3a"
+      "source_sha256": "9b0a78c6b9f13fbc321776286f0875303ff5cfe928000603740215c26311253d"
     },
     "jiuwenswarm/lh/plugins/native.py": {
-      "sha256": "e419663b628f77fa31c9d2ad8424067428ba1a64ab0053bcae1bd450c293d422",
+      "sha256": "6f535a746d461ff3a1a2bd62cbed6e4d91a0400e750b76501bb860229c77a459",
       "source": "src/long_horizon/plugins/native.py",
-      "source_sha256": "e419663b628f77fa31c9d2ad8424067428ba1a64ab0053bcae1bd450c293d422"
+      "source_sha256": "6f535a746d461ff3a1a2bd62cbed6e4d91a0400e750b76501bb860229c77a459"
     },
     "jiuwenswarm/lh/plugins/native_checkpoint.py": {
       "sha256": "17bde8df0967100c625dfb32ea7c42e6605c12ec08b851038280c26544186c27",
@@ -322,6 +323,11 @@
       "source": "src/long_horizon/reference_client_spec.py",
       "source_sha256": "e64831aab90e4e7fd9a1c16cecc08e8cc1c96518022c637c2f785b51cb26af97"
     },
+    "jiuwenswarm/lh/regression_handoff.py": {
+      "sha256": "877d7eae1d729f5af736076ac1b8d51ff4f25a3e7490a1173ff885e1ed753996",
+      "source": "src/long_horizon/regression_handoff.py",
+      "source_sha256": "66b1bea5c7fdde643d139745083d7e3742dc929ff1a28d35f7c5a2f478a141b1"
+    },
     "jiuwenswarm/lh/review_admissions.py": {
       "sha256": "b4f8ca6a49afa13bd7561bd8fa25fe5e55dc37c0f75dce9b14c4556f3fe095c9",
       "source": "src/long_horizon/review_admissions.py",
@@ -371,9 +377,9 @@
       "source_sha256": "75159a820e82dd918c3c694ebe6639c425accc8854cbe2d5e17a6b8afcf4c0af"
     },
     "jiuwenswarm/lh/suite.py": {
-      "sha256": "d67e3973867ba64923529b7af7af6c091c7f06783073d6f2c80da414ae9bf5a0",
+      "sha256": "be948f8d127949eb229028e900595b2e7c31dee485414f7b0a72e5e142017a56",
       "source": "src/long_horizon/suite.py",
-      "source_sha256": "f04892ee0c17efcde364d98346d7d9b5f750021f4313a861c76ec22d41ceaf0c"
+      "source_sha256": "bbcc073b2a38499294d076c0153a1c05c0614b5d15e481ae10ab8de9e60d9f7b"
     },
     "jiuwenswarm/lh/transport_failure.py": {
       "sha256": "f32aae3e08d97dd4068f1fd5e92377b250fcc0cdb8c3655cf15054faaab40738",

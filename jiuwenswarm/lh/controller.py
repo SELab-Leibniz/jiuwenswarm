@@ -273,6 +273,7 @@ class _WorkerDeadlineGuard:
 
     native: RoleAdapter
     controller: Any
+    regression_context: str = ""
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.native, name)
@@ -292,6 +293,8 @@ class _WorkerDeadlineGuard:
             capped = deadline if current is None else min(float(current), deadline)
             if current is None or float(current) != capped:
                 request = replace(request, deadline=capped)
+        if self.regression_context:
+            request = replace(request, prompt=f"{request.prompt}\n\n{self.regression_context}")
         return self.native.run_turn(request)
 
     async def cancel_current_turn(self) -> None:
@@ -350,10 +353,14 @@ class BenchmarkArguments:
     clarification_budget_ratio: float = 0.20
     cutoff_at_unix: float | None = None
     external_prompt_verbatim: str | None = None
+    external_regression_context: str = ""
     external_live_workdir: Path | None = None
     external_question_channel: Any = None
     clock: Callable[[], float] = time.time
     resume_failed_external_draft: bool = False
+    resume_rotated_external_session: bool = False
+    on_external_work_ready: Callable[[], None] | None = None
+    on_external_verification: Callable[[WorkSnapshot], None] | None = None
 
     def __post_init__(self) -> None:
         from .snapshot_resources import SnapshotResources
@@ -689,6 +696,7 @@ class LongHorizonBenchmark:
             max_total_bytes=args.snapshot_max_total_bytes,
             sequence_root=output,
         )
+        runtime.on_verification = args.on_external_verification
         diagnosis_limit, acceptance_limit = args.review_limits()
         self._review_admissions = ReviewAdmissions(
             runtime.workspace / ".pact" / "bench" / "trials" / args.trial_id / "review-admissions.json",
@@ -1095,6 +1103,8 @@ class LongHorizonBenchmark:
             raise FutureCancelledError()
         state = self._open_work(runtime, frozen, binding, task_text)
         self._invocation.state = state
+        if args.on_external_work_ready is not None:
+            args.on_external_work_ready()
         configure_side_call_integrity_state(
             side_call_integrity_state_path(runtime.workspace, state.work_id),
             work_id=state.work_id,
@@ -1133,11 +1143,30 @@ class LongHorizonBenchmark:
         # A checkpoint restore is a handoff back to the Core writer. Validate
         # any recovered guard once, then let recovery rebuild the candidate.
         release_recovered_views((runtime.workspace,))
-        state = runtime.recover(state.work_id, expected_revision=state.revision)
+        try:
+            state = runtime.recover(state.work_id, expected_revision=state.revision)
+        except RuntimeStateError as exc:
+            if not (
+                args.resume_rotated_external_session
+                and self._phase(state) == "p1_started"
+                and str(exc) == "not_auto_resumable: external executor has no completed checkpoint"
+            ):
+                raise
+            from .suite import close_interrupted_p1
+
+            state = close_interrupted_p1(self, runtime, output, state)
         if args.work_id and args.workflow == "suite" and state.delivery is None and not self._abort.is_set():
             from .suite import register_suite_checks
 
             state = register_suite_checks(runtime, state, upgrade_registered=True)
+            if args.external_live_workdir is None and not args.external_regression_context and state.verification:
+                # Native CLI continuation owns a single Work. Read only its
+                # current candidate's public checks after registration/recovery.
+                from .regression_handoff import merge_regressions, worker_regression_context
+
+                context = worker_regression_context(merge_regressions(state=state))
+                args = replace(args, external_regression_context=context)
+                self._args = args
         self._invocation.state = state
         if state.delivery is None:
             state = self._restore_early_audit(runtime, output, state)
@@ -1191,6 +1220,11 @@ class LongHorizonBenchmark:
                     protected_roots=reviewer_protected_roots,
                 ),
                 self,
+                regression_context=(
+                    args.external_regression_context
+                    if args.workflow == "suite" and args.external_live_workdir is None
+                    else ""
+                ),
             ),
             IsolatedExecutableReviewer(
                 self._make_adapter("reviewer", resolved),
@@ -3549,9 +3583,11 @@ class LongHorizonBenchmark:
         if self._args.workflow == "suite":
             from .suite import prepare_suite
 
+            regression_context = getattr(self._args, "external_regression_context", "")
             if self._phase_policy is None:
                 result, self._suite_preparation = await prepare_suite(
-                    self._plugin, context, task_text, cutoff_at_unix=self._args.cutoff_at_unix, clock=self._args.clock
+                    self._plugin, context, task_text, regression_context=regression_context,
+                    cutoff_at_unix=self._args.cutoff_at_unix, clock=self._args.clock,
                 )
                 return result
             planning_deadline = self._planning_deadline
@@ -3568,6 +3604,7 @@ class LongHorizonBenchmark:
                 self._plugin,
                 context,
                 task_text,
+                regression_context=regression_context,
                 optional_context=optional_context,
                 optional_seconds=analysis_seconds,
                 planning_deadline=planning_deadline,

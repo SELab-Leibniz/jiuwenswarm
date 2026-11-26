@@ -468,6 +468,43 @@ async def test_failed_p1_exports_saved_p0_and_refuses_automatic_replay(tmp_path,
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["continue", "tampered-p0", "turn-limit"])
+async def test_rotated_p1_respects_the_sealed_p0_and_original_budget(tmp_path, git_repo_factory, case):
+    args = replace(trial(tmp_path, git_repo_factory), max_turns=2 if case == "turn-limit" else 4)
+    calls = []
+    first = await LongHorizonBenchmark(args, plugin=plugin(calls, fail_repair=True)).run()
+    before = json.loads(first.selection.read_text())
+    assert before["long_horizon"]["phase"] == "p1_started"
+    saved_p0 = before["long_horizon"]["stages"]["p0"]
+    if case == "tampered-p0":
+        manifest = args.output / saved_p0["snapshot"] / "manifest.json"
+        manifest.write_bytes(manifest.read_bytes() + b" ")
+
+    # The embedding caller has joined the failed writer before it attests rotation.
+    resumed_calls = []
+    resumed = await LongHorizonBenchmark(
+        replace(
+            args, work_id=before["work_id"], expected_revision=before["revision"], resume_rotated_external_session=True
+        ),
+        plugin=plugin(resumed_calls),
+    ).run()
+    after = json.loads(resumed.selection.read_text())
+    assert after["work_id"] == before["work_id"]
+    assert after["long_horizon"]["stages"]["p0"] == saved_p0
+    if case == "continue":
+        assert not resumed.internal_failure and after["delivered"], after["internal_failure"]
+        assert sum(label == "[SUITE_P1_REPAIR]" for label, _, _ in resumed_calls) == 1
+        assert all(label != "worker" for label, _, _ in resumed_calls)
+        assert after["budget"]["deadline"] == before["budget"]["deadline"]
+    elif case == "tampered-p0":
+        assert resumed.internal_failure and "not_auto_resumable" in after["internal_failure"]["detail"]
+        assert not resumed_calls
+    else:
+        assert after["stop_reason"] == "max_turns" and not after["delivered"]
+        assert not resumed_calls and after["budget"]["calls"] == before["budget"]["calls"]
+
+
+@pytest.mark.asyncio
 async def test_cancel_during_parallel_preparation_settles_all_admitted_calls(tmp_path, git_repo_factory):
     args, calls, event, started = trial(tmp_path, git_repo_factory), [], threading.Event(), threading.Event()
     controller = LongHorizonBenchmark(

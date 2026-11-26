@@ -29,6 +29,7 @@ from ..public_review import (
 from ..reviewer_execution import NonDegradableIntegrityError
 from ..side_calls import SideCallIntegrityError, SideCalls
 from ..snapshot_resources import SnapshotResources, native_stage_record
+from ..suite import regression_review_hint
 
 # A public-verification artifact that keeps failing its own validation is
 # repaired at most this many attempts per criterion stage before the stage is
@@ -401,6 +402,7 @@ class NativeClarification(SideCalls):
             "its contents. If a required sequence cannot be established, report unavailable and identify "
             "the missing evidence."
             + CONFIRMED_BEHAVIOR_CHECK
+            + regression_review_hint(getattr(self._side_args, "external_regression_context", ""))
         )
         remaining = None
         if context.deadline is not None:

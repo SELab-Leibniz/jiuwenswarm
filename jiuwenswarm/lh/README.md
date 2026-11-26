@@ -1,7 +1,7 @@
 # `--lh`：long-horizon 控制器
 
 本目录是 [long-horizon-controller](https://github.com/SELab-Leibniz/long-horizon-controller)
-`732f3640546334a3730b5c6ae408680a17dd325f` 中与 agent 无关的共享控制器核心，
+`bdf12e3db614becd77084a978f54368eb3e2c77c` 中与 agent 无关的共享控制器核心，
 只保留 JiuwenSwarm 原生 worker 插件和通用插件。Harbor/Terminal-Bench、Chrys、
 Chrys ACP、C7 基线和固定公共 CA overlay 仍留在控制器仓库，不随本集成发布。
 候选归档、公开检查回执和交付使用的通用辅助函数随核心一起迁入；
@@ -15,9 +15,14 @@ suite 支持以下流程：
 - 公开参考程序的多检查点比较；参考不可用、候选差异与可信回执分别记录。
 - 原生事件的有界保留、内存压力证据、只读阶段的状态与日志隔离，以及 shell 进程终止保护。
 
-本版同步了保存失败草稿和计算公开审查重试依据的共享逻辑。上游 external adapter
-使用持久模型会话恢复草稿，并根据结构化证据决定何时退避。Jiuwen 原生入口通过
-`--work-id` 与 `--expected-revision` 续跑已保存的 Work。
+使用 `--work-id` 与 `--expected-revision` 可以续跑已保存的原生 suite Work。
+如果当前候选有符合条件的公开检查失败，控制器会把用例、检查点和复现方法交给
+后续实际运行的 Worker、Planner 和独立 Reviewer。各角色沿用原 Goal Contract
+和验收项 ID。新 Work 从自己的证据开始。
+
+共享恢复逻辑支持由调用方确认旧执行器已停止并已切换会话的情况。重试前会校验
+已封存的 P0 和中断的 P1 操作，并沿用原实施轮数预算。持久会话切换由上游
+external driver 管理。普通原生续跑遇到未封存的 P1 时会报告中断，供调用方检查。
 
 ## 入口
 

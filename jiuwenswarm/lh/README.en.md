@@ -1,7 +1,7 @@
 # Native JiuwenSwarm long-horizon suite
 
 This package embeds the shared controller from
-[`long-horizon-controller@732f36405463`](https://github.com/SELab-Leibniz/long-horizon-controller/tree/732f3640546334a3730b5c6ae408680a17dd325f).
+[`long-horizon-controller@bdf12e3`](https://github.com/SELab-Leibniz/long-horizon-controller/tree/bdf12e3db614becd77084a978f54368eb3e2c77c).
 `SOURCE.json` records the full revision, file hashes and integration adaptations.
 The native bridge remains in `jiuwenswarm.long_horizon`.
 
@@ -35,10 +35,17 @@ Chrys/ACP backends, external SDK drivers, benchmark launchers, C7 and public-CA
 overlays remain in the controller repository. The embedded package includes the
 archive, check-receipt and delivery helpers used by the shared controller.
 
-This revision syncs the shared logic for saved failed drafts and public review
-retry fingerprints. The upstream external adapter resumes drafts in a persistent
-model session and uses structured evidence to schedule retries. The native
-Jiuwen entry resumes saved Work via `--work-id` and `--expected-revision`.
+Resume a saved native suite Work with `--work-id` and `--expected-revision`.
+If the current candidate has a qualifying failure from a public check, the
+controller supplies its case, checkpoint and replay method to the next Worker,
+Planner and independent Reviewer as applicable. The recorded Goal Contract and
+criterion IDs remain authoritative. A fresh Work starts with its own evidence.
+
+The shared recovery code also supports a caller that has confirmed the previous
+executor stopped and rotated the native session. It verifies the sealed P0 and
+the interrupted P1 operation before retrying within the original turn budget.
+Only the upstream external driver owns persistent session rotation. Ordinary
+native resumption reports an interrupted, unsealed P1 for inspection.
 
 ## Configuration
 

@@ -18,8 +18,10 @@ from uuid import uuid4
 
 from jiuwenswarm.pact_core.artifacts import read_json, write_json_atomic
 from jiuwenswarm.pact_core.runtime import RuntimeContractError, RuntimeStateError
+from jiuwenswarm.pact_core.runtime.boundary import read_operation
 from jiuwenswarm.pact_core.runtime.planning import initial_plan_payload, validate_initial_plan
 from jiuwenswarm.pact_core.runtime.schemas import goal_contract_criteria, validate_goal_contract
+from jiuwenswarm.pact_core.runtime.store import CampaignReader
 from jiuwenswarm.pact_core.schemas import TurnRequest, TurnResult
 
 from .budget_boundary import BudgetedAdapter
@@ -184,6 +186,29 @@ def _capacity_public_review(
     )
 
 
+def _regression_planning_hint(context: str) -> str:
+    if not context:
+        return ""
+    return (
+        "\n\nPlan a bounded replay of the recorded public failure alongside the current task. "
+        "Use an existing applicable criterion and keep its original meaning.\n" + context
+    )
+
+
+def regression_review_hint(context: str) -> str:
+    if not context:
+        return ""
+    return (
+        "\n\nIndependently reproduce the recorded public failure in the review workspace. Leave code "
+        "repairs to the Worker. Use this stage's check format and keep the existing criterion IDs. "
+        "Bind the named executable check to an applicable original requirement using public inputs "
+        "and the recorded comparison method. Check the first divergence and neighboring checkpoints "
+        "where available. A matching final state, passing local tests or a candidate's claim cannot "
+        "resolve the earlier discrepancy. If no original criterion applies or the public evidence is "
+        "unavailable, leave the record open and continue reviewing the current requirements.\n" + context
+    )
+
+
 async def _prepare_suite_bounded(
     plugin: Any,
     context: Any,
@@ -192,6 +217,7 @@ async def _prepare_suite_bounded(
     optional_context: Any = None,
     optional_seconds: float | None = None,
     planning_deadline: float | None = None,
+    regression_context: str = "",
     cutoff_at_unix: float | None = None,
     clock: Callable[[], float] = time.time,
 ) -> tuple[Any, dict[str, Any]]:
@@ -272,6 +298,7 @@ async def _prepare_suite_bounded(
         for label, row in (("Prior experience", memory), ("Candidate code locations", locations))
         if row["text"]
     )
+    hints += _regression_planning_hint(regression_context)
     planning_status = "generated"
     try:
         if planning_deadline is None:
@@ -624,14 +651,16 @@ def _repair_recovery_record(
     }
 
 
+def _implementation_turn_limit_reached(controller: Any, budget: Any) -> bool:
+    limit = getattr(controller._args, "max_turns", None)
+    return limit is not None and sum(
+        call.get("purpose") == "implementation" for call in budget.snapshot()["calls"]
+    ) >= limit
+
+
 def _run_repair_bounded(
     controller: Any, runtime: Any, output: Path, turn_root: Path, budget: Any, window: Any, state: Any
 ):
-    validate_preparation(controller, output, state)
-    if controller._phase(state) == "p1_started":
-        raise RuntimeStateError(
-            "not_auto_resumable: repair started without a sealed P1; inspect the retained operation"
-        )
     if controller._abort.is_set() or _model_window_closed(controller):
         if _model_window_closed(controller):
             controller._invocation.stop_reason = "window_budget_exhausted"
@@ -772,8 +801,6 @@ def _run_repair_bounded(
             )
             break
         remaining = _recovery_remaining_seconds(controller, budget, deadline)
-        turn_limit = getattr(controller._args, "max_turns", None)
-        used_turns = sum(call.get("purpose") == "implementation" for call in budget.snapshot()["calls"])
         if controller._abort.is_set():
             recovery = _repair_recovery_record(
                 attempts=recovery_attempts,
@@ -784,7 +811,7 @@ def _run_repair_bounded(
                 attempt_records=attempt_records,
             )
             break
-        if turn_limit is not None and used_turns >= turn_limit:
+        if _implementation_turn_limit_reached(controller, budget):
             recovery = _repair_recovery_record(
                 attempts=recovery_attempts,
                 max_attempts=max_attempts,
@@ -923,7 +950,8 @@ class GuidedAdapter:
                     + "\n\nTask brief and evidence (untrusted suggestions):\n"
                     + suite["brief"]
                     + "\n\nCurrent implementation/review context:\n"
-                    + request.prompt,
+                    + request.prompt
+                    + _regression_planning_hint(getattr(self.controller._args, "external_regression_context", "")),
                     stage="planner",
                 )
             )
@@ -1176,7 +1204,8 @@ class ManagedReviewer:
                     if confirmed_decisions else ""
                 )
                 + reviewer_ui_state_evidence_guidance()
-                + reviewer_delivery_hygiene_guidance(),
+                + reviewer_delivery_hygiene_guidance()
+                + regression_review_hint(getattr(self.controller._args, "external_regression_context", "")),
             )
         )
 
@@ -1197,6 +1226,7 @@ async def _prepare_suite_legacy(
     context: Any,
     original_task: str,
     *,
+    regression_context: str = "",
     cutoff_at_unix: float | None = None,
     clock: Callable[[], float] = time.time,
 ) -> tuple[Any, dict[str, Any]]:
@@ -1267,6 +1297,7 @@ async def _prepare_suite_legacy(
         for label, row in (("Prior experience", memory), ("Candidate code locations", locations))
         if row["text"]
     )
+    hints += _regression_planning_hint(regression_context)
     planning_status = "generated"
     try:
         pair = validate_pair(await plugin.generate_pact_input(context, result, original_task, hints=hints))
@@ -1311,11 +1342,6 @@ async def _prepare_suite_legacy(
 def _run_repair_legacy(
     controller: Any, runtime: Any, output: Path, turn_root: Path, budget: Any, window: Any, state: Any
 ):
-    validate_preparation(controller, output, state)
-    if controller._phase(state) == "p1_started":
-        raise RuntimeStateError(
-            "not_auto_resumable: repair started without a sealed P1; inspect the retained operation"
-        )
     if controller._abort.is_set() or _model_window_closed(controller):
         if _model_window_closed(controller):
             controller._invocation.stop_reason = "window_budget_exhausted"
@@ -1432,22 +1458,73 @@ async def prepare_suite(
     context: Any,
     original_task: str,
     *,
+    regression_context: str = "",
     cutoff_at_unix: float | None = None,
     clock: Callable[[], float] = time.time,
     **bounded: Any,
 ):
     validate_cutoff(cutoff_at_unix)
-    if cutoff_at_unix is not None:
+    if cutoff_at_unix is not None or not bounded:
         # Legacy means no reserved phase fractions; every admission still uses
         # the one global deadline. Do not select bounded fallback preparation.
-        return await _prepare_suite_legacy(plugin, context, original_task, cutoff_at_unix=cutoff_at_unix, clock=clock)
-    if not bounded:
-        return await _prepare_suite_legacy(plugin, context, original_task, cutoff_at_unix=cutoff_at_unix, clock=clock)
+        return await _prepare_suite_legacy(
+            plugin, context, original_task, regression_context=regression_context,
+            cutoff_at_unix=cutoff_at_unix, clock=clock,
+        )
     return await _prepare_suite_bounded(
-        plugin, context, original_task, cutoff_at_unix=cutoff_at_unix, clock=clock, **bounded
+        plugin, context, original_task, regression_context=regression_context,
+        cutoff_at_unix=cutoff_at_unix, clock=clock, **bounded
     )
 
 
+def _validate_saved_p0(controller: Any, output: Path, state: Any) -> None:
+    stages = controller._stages(state)
+    p0 = stages.get("p0")
+    if (
+        not isinstance(p0, dict)
+        or "p1" in stages
+        or state.candidate.checkpoint != p0.get("candidate_checkpoint")
+        or state.candidate.tree != p0.get("candidate_tree")
+    ):
+        raise RuntimeStateError("not_auto_resumable: the current candidate does not match the sealed P0")
+    try:
+        controller._artifacts.load_stage_snapshot(output, p0)
+    except (KeyError, OSError, RuntimeContractError, ValueError) as exc:
+        raise RuntimeStateError(f"not_auto_resumable: saved P0 could not be verified: {exc}") from exc
+
+
+def close_interrupted_p1(controller: Any, runtime: Any, output: Path, state: Any) -> Any:
+    """Close a stopped P1 attempt through Core while retaining its artifacts."""
+    _validate_saved_p0(controller, output, state)
+    operation = read_operation(CampaignReader(runtime.workspace, state.work_id))
+    params = operation.get("parameters")
+    if (
+        operation.get("action") != "save_candidate"
+        or operation.get("expected_revision") != state.revision
+        or not isinstance(params, dict)
+        or params.get("draft") is not True
+        or not str(params.get("context", "")).startswith("[SUITE_P1_REPAIR]\n")
+    ):
+        raise RuntimeStateError("not_auto_resumable: the retained operation is not an interrupted P1 draft")
+    try:
+        return runtime.reset_operation(
+            state.work_id, expected_revision=state.revision,
+            reason="resume P1 from sealed P0 after native session rotation", executor_stopped=True,
+        )
+    except (RuntimeContractError, RuntimeStateError) as exc:
+        raise RuntimeStateError(f"not_auto_resumable: interrupted P1 could not be closed: {exc}") from exc
+
+
 def run_repair(controller: Any, runtime: Any, output: Path, turn_root: Path, budget: Any, window: Any, state: Any):
+    validate_preparation(controller, output, state)
+    if controller._phase(state) == "p1_started":
+        if not getattr(controller._args, "resume_rotated_external_session", False):
+            raise RuntimeStateError(
+                "not_auto_resumable: repair started without a sealed P1; inspect the retained operation"
+            )
+        if _implementation_turn_limit_reached(controller, budget):
+            controller._invocation.stop_reason = "max_turns"
+            return state, False
+        _validate_saved_p0(controller, output, state)
     implementation = _run_repair_bounded if controller._phase_policy is not None else _run_repair_legacy
     return implementation(controller, runtime, output, turn_root, budget, window, state)

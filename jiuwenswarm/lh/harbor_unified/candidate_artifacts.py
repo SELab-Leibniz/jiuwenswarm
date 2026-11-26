@@ -9,12 +9,14 @@ import json
 import os
 import shutil
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
 from jiuwenswarm.pact_core.kernel import default_worktree_root, read_work_candidate
 from jiuwenswarm.pact_core.runtime import RuntimeContractError, WorkRuntime, control_plane
+from jiuwenswarm.pact_core.runtime.types import WorkSnapshot
 
 from ..acceptance_timing import AcceptanceTimings
 from ..check_prerequisites import observed_command
@@ -251,6 +253,7 @@ class EvidenceWorkRuntime(WorkRuntime):
         super().__init__(workspace, worktree_root=worktree_root)
         self.candidate_archive = archive
         self.acceptance_timings: AcceptanceTimings | None = None
+        self.on_verification: Callable[[WorkSnapshot], None] | None = None
 
     def accept_candidate(self, work_id, *, expected_revision, reviewer, timeout_seconds=3600.0, deadline=None):
         if self.acceptance_timings is not None:
@@ -398,10 +401,14 @@ class EvidenceWorkRuntime(WorkRuntime):
 
     def verify_candidate(self, work_id: str, *, expected_revision: int, deadline: float | None = None):
         if self.acceptance_timings is not None:
-            return self.acceptance_timings.measure(
+            state = self.acceptance_timings.measure(
                 "verify", self._verify_and_archive, self.workspace, work_id, expected_revision, deadline=deadline
             )
-        return self._verify_and_archive(work_id, expected_revision=expected_revision, deadline=deadline)
+        else:
+            state = self._verify_and_archive(work_id, expected_revision=expected_revision, deadline=deadline)
+        if self.on_verification is not None:
+            self.on_verification(state)
+        return state
 
     def _verify_and_archive(self, work_id: str, *, expected_revision: int, deadline: float | None):
         try:
