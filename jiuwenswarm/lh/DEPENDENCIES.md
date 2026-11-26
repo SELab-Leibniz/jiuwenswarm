@@ -74,10 +74,13 @@ Process CLI。因此只检查 controller import，无法覆盖子进程的运行
 Python 3.11 语法模式解析。此检查不证明全部标准库 API 或平台行为兼容。
 LH 的 POSIX 权限／只读 reviewer 路径还依赖目标系统，应在 Linux 环境验证。
 
-无模型初始化 smoke 应使用临时 Git 仓库和非空 `.gitignore`，执行真实
-WorkRuntime、S0 导出与快照，断言没有 `internal_failure`，且已经到达模型
-调用前的可识别边界；模型角色用明确的本地测试替身阻止调用。只运行
-`--lh --help` 或 `import jiuwenswarm.lh.cli` 不会触发这个延迟依赖。
+无模型初始化 smoke 使用临时 Git 仓库和非空 `.gitignore`，执行真实
+WorkRuntime、S0 导出与快照，断言没有 `internal_failure`。这一步在 P0 前停止，
+不覆盖原生 worker 的配置隔离。`--check-native-imports` 还使用包内完整配置，
+按 Beacon seed 规则准备独立数据目录，对可写、只读、禁用工具三个角色调用
+真实 `JiuwenWorker.run()`。它保留配置隔离与请求校验，只在原生启动边界
+硬停止，并检查配置快照、请求及环境变量选择器。只运行 `--lh --help`、
+导入模块或对空配置做 S0 检查，都无法覆盖这个真实配置路径。
 
 分别验证默认源码安装和普通 wheel 安装，并检查导出资源，可发现开发环境
 或源码目录掩盖的依赖问题。此类 smoke 证明初始化与打包，不证明真实模型

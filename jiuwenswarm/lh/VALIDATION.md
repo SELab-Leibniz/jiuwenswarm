@@ -1,5 +1,51 @@
 # Suite synchronization validation
 
+## 2026-11-26 · Real native configuration admission without inference
+
+The default browser configuration uses `browser.decision.api_key_env` as an
+environment-variable name. Fix `d7475e16` admits the three documented names only
+at that exact field and includes the selected variable's value in the execution
+fingerprint. Other credential fields retain their existing checks. This follow-up
+extends the production smoke beyond a template predicate and S0 capture.
+
+`initialization_smoke --check-native-imports` now invokes
+`native_configuration_smoke` in its isolated subprocess. It uses the actual
+packaged configuration, `prepare_workspace`, and Beacon's permission/language
+seed rules in a dedicated data directory. Three real `JiuwenWorker.run()` calls
+exercise writable, read-only and tool-free admission. Each must write its isolated
+config and validated `OneShotRunInput` request, preserve the browser selector and
+model config, and reach a hard stop at `_native_startup`. Network and native
+process attempts fail the check, even if the attempted operation's exception is
+caught by the code under test. Git provenance reads remain allowed.
+
+Validation completed with:
+
+- **52 worker tests and 21 subtests passed** on macOS/Python 3.11, including the
+  default browser selector, exact-field restrictions, inline credential rejection
+  and environment changes invalidating continuation identity.
+- **30 LH tests passed** on Linux/amd64 with Python 3.11.14. They cover real seeded
+  configuration, all three roles, restoration of the original selector rejection,
+  inline credentials, request schema failure, swallowed network exceptions, the
+  existing nonempty `.gitignore` S0 check, packaging and run-JSON routing.
+- A fresh default `uv sync --frozen --no-dev --no-editable` installation contained
+  254 packages and passed `uv pip check`. Test dependencies lived in a separate
+  directory; pytest and mypy were absent from the production installation.
+- The installed-package smoke passed in a second container with `--network none`,
+  no checkout mount, cwd `/tmp`, and `python -I`. S0 filtering, all three native
+  configuration cases and runtime imports passed. Network attempts, forbidden
+  process attempts and model calls were zero. Installed implementation hashes
+  matched the tested source.
+
+The existing `LH production initialization` workflow executes this expanded smoke
+automatically. In addition to S0 and import evidence it retains
+`native-configuration/native-configuration.json`, the seeded config, and each
+role's `metadata.json`, `native-config.before.yaml` and `request.json`.
+
+This proves configuration admission and packaging through the startup boundary.
+It does not execute the native command or verify provider authentication, model
+inference or a complete benchmark. No Beacon/Jenkins platform changes or DeepSWE
+rerun were made for this follow-up.
+
 ## 2026-11-26 · Default runtime dependencies and initialization smoke
 
 The dependency audit against PR head `69e22ba6a` found one missing default LH

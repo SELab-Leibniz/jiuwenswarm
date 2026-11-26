@@ -89,7 +89,7 @@ uv run --no-sync python -I -m jiuwenswarm.lh.initialization_smoke --check-native
 
 初始化 smoke 使用临时 Git 仓库和非空 `.gitignore`，通过真实控制器、WorkRuntime 与原生快照实现完成 S0，在 P0 前停止，并禁止模型 worker 执行。它不需要 pytest 或开发依赖。可用 `--output /path/to/fresh-directory` 保留检查报告和 `selection.json`。该检查覆盖初始化，不代表模型执行、完整工作流或外部评测通过。
 
-`--check-native-imports` 另在隔离子进程中校验原生 worker 能接受包内默认配置，再准备原生日志／状态目录并导入 Process CLI runtime，禁止网络访问，保留 `native-imports.json` 及 stdout/stderr。该子进程失败或超时会让整个 smoke 失败。
+`--check-native-imports` 另在隔离子进程中用包内完整配置执行原生预检：按 Beacon seed 规则准备独立的数据目录，调用真实 `JiuwenWorker.run()`，分别验证可写、只读和禁用工具的角色配置隔离及请求 schema。检查在原生启动边界硬停止，不启动模型进程；环境变量名称保持原样。随后检查原生日志／状态目录和 Process CLI runtime 导入。全程禁止网络访问，保留配置快照、请求和 JSON 诊断；任一步失败或超时都会让整个 smoke 失败。
 
 CI 在全新 Linux/Python 3.11 环境中按上述默认生产安装方式安装，再从源码目录之外、禁用网络的容器运行 smoke，避免开发依赖或源码路径掩盖安装缺漏。
 

@@ -9,8 +9,9 @@ The output directory must be empty or absent. It retains the temporary Git
 fixture, Core state, native snapshots, selection.json and smoke-result.json.
 Only the P0 execution boundary is replaced: Core and native artifact capture
 remain real, and the worker cannot start a process or contact a model.
-The optional native import check requires the full default installation and
-checks stage/logging bootstrap in a separate process without running a task.
+The optional native import check requires the full default installation. In a
+separate process it seeds the packaged configuration as Beacon does, validates
+three real worker roles up to native startup, and checks stage/logging imports.
 """
 
 from __future__ import annotations
@@ -32,37 +33,46 @@ SOURCE_TEXT = "S0 initialization fixture.\n"
 _NATIVE_IMPORT_CHECK = r"""
 import importlib
 import json
+import os
 import sys
-from importlib.resources import files
 from pathlib import Path
 
 state, result_path = (Path(value) for value in sys.argv[1:])
 result = {"schema": "jiuwenswarm/lh-native-import-smoke/v1", "status": "failed", "modules": {}}
+network_attempts = 0
 
 def no_network(event, args):
+    global network_attempts
     if event in {"socket.connect", "socket.getaddrinfo", "socket.sendto"}:
+        network_attempts += 1
         raise RuntimeError("native import smoke forbids network access")
 
-sys.addaudithook(no_network)
 try:
-    import yaml
     from jiuwenswarm.long_horizon import native_entry
-    from jiuwenswarm.long_horizon.worker import _credential_free
+    from jiuwenswarm.lh.native_configuration_smoke import run_smoke
 
-    config = yaml.safe_load(files("jiuwenswarm.resources").joinpath("config.yaml").read_bytes())
-    if not isinstance(config, dict) or not _credential_free(config):
-        raise ValueError("native worker rejected the packaged config template")
+    configuration = run_smoke(state.parent / "native-configuration")
+    result["native_configuration"] = configuration
+    if configuration["status"] != "passed":
+        raise RuntimeError("native configuration admission smoke failed")
+    sys.addaudithook(no_network)
     result["packaged_config_accepted"] = True
+    state = Path(configuration["data_dir"])
+    os.environ["JIUWENSWARM_DATA_DIR"] = str(state)
+    os.environ["JIUWENSWARM_CONFIG_DIR"] = str(state / "config")
     native_entry._prepare_stage(state, read_only=False)
     native_entry._configure_logging(state)
     for name in ("jiuwenswarm.channels.process_cli.machine", "jiuwenswarm.channels.process_cli.main"):
         module = importlib.import_module(name)
         result["modules"][name] = module.__file__
+    if network_attempts:
+        raise RuntimeError("network access was attempted during native import smoke")
     result["status"] = "passed"
 except BaseException as exc:
     result["error"] = {"type": type(exc).__name__, "detail": str(exc)}
     raise
 finally:
+    result["network_attempts"] = network_attempts
     result_path.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
 """
 
@@ -267,7 +277,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--check-native-imports",
         action="store_true",
-        help="also bootstrap native logging and import machine/runtime in an isolated, network-blocked process",
+        help="also validate seeded native configurations and bootstrap machine/runtime imports without inference",
     )
     options = parser.parse_args(argv)
     output = options.output or Path(tempfile.mkdtemp(prefix="jiuwenswarm-lh-init-"))

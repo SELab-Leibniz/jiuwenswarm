@@ -57,7 +57,7 @@ jobs:
               uv sync --frozen --no-dev --no-editable --python 3.11 \
                 --python-platform x86_64-manylinux_2_28
             '
-      - name: Initialize the installed controller without network or model calls
+      - name: Validate installed controller and native configurations without model calls
         run: |
           docker run --rm --platform linux/amd64 --network none --workdir /tmp \
             --mount "type=volume,source=$RUNTIME_VOLUME,target=/opt/jiuwenswarm-host,readonly" \
