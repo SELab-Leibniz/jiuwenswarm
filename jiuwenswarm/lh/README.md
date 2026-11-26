@@ -79,14 +79,21 @@ Linux root 环境下可通过 `--reviewer-uid` / `--reviewer-gid` 配置专用 R
 
 ## 从 PR 安装
 
-在本分支根目录使用 Python 3.11–3.13。WorkSwarm 随仓库提供 [PACT Core WorkRuntime 源码](../pact_core/)。默认的 `suite` 和原始任务 `benchmark` 都导入这份源码。生产环境默认安装 `pathspec==1.1.1`，供 LH 创建快照时解析 `.gitignore`。
+在本分支根目录使用 Python 3.11–3.13。WorkSwarm 随仓库提供 [PACT Core WorkRuntime 源码](../pact_core/)。默认的 `suite` 和原始任务 `benchmark` 都导入这份源码。快照过滤器需要的 `pathspec` 已纳入默认运行依赖；安装时无需 extra。`lh` extra 名称保留为兼容别名。完整审计范围与条件可选依赖见 [运行依赖检查](DEPENDENCIES.md)。
 
 ```bash
 uv sync --frozen --no-dev --no-editable
 uv run --no-sync jiuwenswarm-process --lh --help
+uv run --no-sync python -I -m jiuwenswarm.lh.initialization_smoke --check-native-imports
 ```
 
-离线部署若使用 `--no-deps` 手动配置依赖，可用下列命令从仓库安装 `pathspec` 并核验 SHA-256。
+初始化 smoke 使用临时 Git 仓库和非空 `.gitignore`，通过真实控制器、WorkRuntime 与原生快照实现完成 S0，在 P0 前停止，并禁止模型 worker 执行。它不需要 pytest 或开发依赖。可用 `--output /path/to/fresh-directory` 保留检查报告和 `selection.json`。该检查覆盖初始化，不代表模型执行、完整工作流或外部评测通过。
+
+`--check-native-imports` 另在隔离子进程中准备原生日志／状态目录并导入 Process CLI runtime，禁止网络访问，保留 `native-imports.json` 及 stdout/stderr。该子进程失败或超时会让整个 smoke 失败。
+
+CI 在全新 Linux/Python 3.11 环境中按上述默认生产安装方式安装，再从源码目录之外、禁用网络的容器运行 smoke，避免开发依赖或源码路径掩盖安装缺漏。
+
+离线部署若使用 `--no-deps` 手动配置依赖，可用下列命令从仓库安装 `pathspec` 并核验 SHA-256。正常默认安装不需要此附加步骤。
 
 ```bash
 python -m pip install -r jiuwenswarm/lh/requirements.txt

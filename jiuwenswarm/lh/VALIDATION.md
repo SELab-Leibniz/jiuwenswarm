@@ -1,5 +1,63 @@
 # Suite synchronization validation
 
+## 2026-11-26 · Default runtime dependencies and initialization smoke
+
+The dependency audit against PR head `69e22ba6a` found one missing default LH
+dependency: `pathspec==1.1.1`. It is now in `project.dependencies`; the empty `lh`
+extra remains for compatibility. All 318 non-project package records in `uv.lock`
+are unchanged, and uv 0.9.30 `lock --check` passes. See [DEPENDENCIES.md](DEPENDENCIES.md)
+for direct, deferred and conditional imports and package resources. The final
+change preserves the concurrent default-dependency fix and regression in
+`cc54be6e6`; the lockfile is identical to that commit.
+
+Production installation was verified in Linux/amd64 with the harness builder's
+uv 0.9.30 image, CPython 3.11.14, and:
+
+```sh
+uv sync --frozen --no-dev --no-editable --python 3.11 \
+  --python-platform x86_64-manylinux_2_28
+```
+
+The fresh environment contains 254 packages, including pathspec 1.1.1, and has
+neither pytest nor mypy installed. `uv pip check` reports no incompatible packages.
+The installed package retains the `lh` extra metadata. All 63 PACT source/resource
+hashes match the manifest; the native config, process protocol schema, requirement
+files and bundled pathspec wheel are present and readable.
+
+A second container mounted only the installed runtime and an empty evidence
+directory, with no checkout mount and `--network none`. From `/tmp` it ran:
+
+```sh
+/opt/jiuwenswarm-host/venv/bin/python -I \
+  -m jiuwenswarm.lh.initialization_smoke \
+  --check-native-imports --output /smoke-output
+```
+
+The installed controller reached `s0_frozen`, read and applied the nonempty
+`.gitignore`, and verified the real Core candidate, S0 checkpoint and snapshot.
+The role-call ledger and worker call count remained zero. The isolated native
+bootstrap/import check also passed for `process_cli.machine` and `process_cli.main`
+from site-packages. It did not execute either entrypoint or contact a provider.
+
+Twenty-five targeted tests passed on macOS/Python 3.11, covering initialization,
+Core packaging, snapshot resources and run-JSON routing. The new negative control
+blocks only pathspec resolution: real S0 initialization then fails with
+`ModuleNotFoundError` retained in `selection.json`, phase `created`, no S0 snapshot
+and zero role/worker calls. Another control makes the optional native check throw
+after successful S0 and verifies the smoke returns failure rather than a false pass.
+
+```sh
+python -m pytest -q -o addopts='' --confcutdir=tests/lh \
+  tests/lh/test_initialization_smoke.py tests/lh/test_pact_core_sources.py \
+  tests/lh/test_snapshot_resources.py tests/lh/test_lh_run_json.py
+```
+
+The `LH production initialization` workflow repeats the fresh default installation
+and network-disabled installed-package smoke on relevant changes. It preserves
+the smoke JSON, selection, snapshot and native import logs even on failure.
+These checks establish installation and initialization coverage; no model task,
+DeepSWE rerun, native role execution or external grader was run for this change.
+
 ## Default production installation
 
 From a clean checkout, run the platform's production install and check the installed package metadata:
