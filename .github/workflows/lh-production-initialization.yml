@@ -33,11 +33,12 @@ jobs:
       # The same uv 0.9.30 / Python 3.13 Bookworm image used by the harness builder.
       RUNTIME_IMAGE: ghcr.io/astral-sh/uv@sha256:47965cdc9d53a515f68f78241161c901e70051ce428f12e791bd7fe19f6a631a
       RUNTIME_VOLUME: lh-production-${{ github.run_id }}-${{ github.run_attempt }}
-      SMOKE_OUTPUT: ${{ runner.temp }}/lh-initialization-smoke
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Set evidence directory
+        run: echo "SMOKE_OUTPUT=$RUNNER_TEMP/lh-initialization-smoke" >> "$GITHUB_ENV"
       - name: Install production dependencies and package
         run: |
           mkdir -p "$SMOKE_OUTPUT"
