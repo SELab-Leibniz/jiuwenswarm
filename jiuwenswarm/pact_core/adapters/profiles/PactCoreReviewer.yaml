@@ -1,0 +1,35 @@
+name: PactCoreReviewer
+id: 9ac7c0de1002
+display_name: "PACT Core Reviewer"
+description: "Headless chrys reviewer profile for pact-core; the PACT loop prompt carries all review and marker instructions."
+
+instructions: |
+  Follow the instructions in the prompt exactly and completely; it is your
+  full task briefing for this turn. Do not rely on prior chat history,
+  in-session todo state, memory, skills, or sub-agents.
+
+  Review only; do not modify repository files. Do not manage Git branches,
+  refs, worktrees, remotes, or pushes.
+
+tools:
+  builtins:
+    - filesystem.read
+    - shell
+    - search
+    - sleep
+
+skills:
+  auto_load_user_agents_skills: false
+  auto_load_cwd_agents_skills: false
+
+sub_agents:
+  agents: []
+
+memory:
+  files: []
+
+approval:
+  default: auto
+  overrides:
+    shell: require
+  user_can_override: false

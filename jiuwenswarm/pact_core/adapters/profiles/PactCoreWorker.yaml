@@ -1,0 +1,39 @@
+name: PactCoreWorker
+id: 9ac7c0de1001
+display_name: "PACT Core Worker"
+description: "Headless chrys worker profile for pact-core; the PACT loop prompt carries all task and protocol instructions."
+
+instructions: |
+  Follow the instructions in the prompt exactly and completely; it is your
+  full task briefing for this turn. Do not rely on prior chat history,
+  in-session todo state, memory, skills, or sub-agents.
+
+  Apply changes directly to the current working directory. Do not manage
+  Git branches, refs, worktrees, remotes, or pushes, and do not create
+  patch-export artifacts — the calling controller owns checkpoints and
+  patch capture.
+
+tools:
+  builtins:
+    - filesystem.write
+    - filesystem.read
+    - shell
+    - search
+    - sleep
+
+skills:
+  auto_load_user_agents_skills: false
+  auto_load_cwd_agents_skills: false
+
+sub_agents:
+  agents: []
+
+memory:
+  files: []
+
+approval:
+  default: auto
+  overrides:
+    shell: require
+    filesystem.write: require
+  user_can_override: false

@@ -1,0 +1,339 @@
+# Suite synchronization validation
+
+## 2026-11-27 · Accepted candidate publication and dynamic round limits
+
+Upstream `193a46487966b6a1c0ef52f86c7b24dca2d7bbe9` (controller PR #91)
+checks the live tree before finalizing an accepted persistent solver session.
+The native run-JSON port checks the caller's tree at patch publication. It uses the
+existing Core export and requires no additional model call or caller-side commit.
+
+- A clean checkout of `19492db38` installed on macOS arm64 / Python 3.13.3 with
+  `uv sync --frozen --no-dev --no-editable` using the populated offline cache.
+  The production environment included `pathspec==1.1.1` and the embedded
+  `jiuwenswarm.pact_core`. The installed initialization and native-import smoke passed.
+- The installed `jiuwenswarm-process --run-json FILE --lh` ran both workflows with
+  scripted role replies. Suite admitted 3 implementation rounds with a consecutive-stall
+  limit of 2 (19 role calls total). Benchmark admitted 2 implementation rounds
+  (5 role calls). Both returned exit code 0, applied `greeting.txt`, and reported
+  the exact selected Git tree in the terminal `lh.finished` event. The caller's HEAD
+  and index tree were preserved. Both Core reports recorded external grading as `not_run`.
+- The scheduling regression covers 72 successive rounds of verified progress and 72
+  acceptance-review admissions, including a ledger reload halfway through. Paired
+  unattended-resolver fixtures verify that a repeated, already-passing candidate
+  with the same outstanding question consumes the consecutive-stall allowance.
+
+## 2026-11-26 · Controller bdf12e3 and native Work continuation
+
+The embedded controller follows upstream PRs #89 and #90. The native CLI
+reconstructs public regression context on an explicit suite resume from the
+current WorkRuntime candidate and its registered checks. The external SDK's
+persistent sessions and cross-Work ledger are upstream integrations.
+
+- The public evidence tests exercise actual WorkRuntime verification, including
+  a public comparison at two checkpoints and an independently admitted behavior
+  check. The role tests cover legacy and bounded planning. A native resume test
+  records a mismatch at checkpoint 2 on P0, resumes at the recorded revision,
+  and observes that evidence in the P1 Worker and independent Reviewer prompts.
+- Three recovery cases cover an explicitly rotated executor after P1 stops. A
+  verified P0 permits recovery, a modified P0 manifest prevents replay, and
+  an exhausted implementation budget admits no new turns. The ordinary native
+  resume test also retains its inspection requirement for an unsealed P1.
+- From a clean checkout of `4087a3b8f`, macOS/Python 3.13.3 installed the frozen
+  production dependencies using `uv sync --frozen --no-dev --no-editable`
+  from a populated offline uv cache. The installed package included
+  `pathspec==1.1.1`, the new handoff module and the source manifest.
+  `initialization_smoke --check-native-imports` passed outside the checkout.
+- Using the installed `--run-json FILE --lh` dispatcher and scripted roles,
+  both modes reached Core acceptance and delivery, exited 0 and applied the
+  expected `greeting.txt` patch. Suite exercised 15 role calls and benchmark 5.
+  Both selection records report external grading as `not_run`.
+
+## 2026-11-26 · Real native configuration admission without inference
+
+The default browser configuration uses `browser.decision.api_key_env` as an
+environment-variable name. Fix `d7475e16` admits the three documented names only
+at that exact field and includes the selected variable's value in the execution
+fingerprint. Other credential fields retain their existing checks. This follow-up
+extends the production smoke beyond a template predicate and S0 capture.
+
+`initialization_smoke --check-native-imports` now invokes
+`native_configuration_smoke` in its isolated subprocess. It uses the actual
+packaged configuration, `prepare_workspace`, and Beacon's permission/language
+seed rules in a dedicated data directory. Three real `JiuwenWorker.run()` calls
+exercise writable, read-only and tool-free admission. Each must write its isolated
+config and validated `OneShotRunInput` request, preserve the browser selector and
+model config, and reach a hard stop at `_native_startup`. Network and native
+process attempts fail the check, even if the attempted operation's exception is
+caught by the code under test. Git provenance reads remain allowed.
+
+Validation completed with:
+
+- **52 worker tests and 21 subtests passed** on macOS/Python 3.11, including the
+  default browser selector, exact-field restrictions, inline credential rejection
+  and environment changes invalidating continuation identity.
+- **30 LH tests passed** on Linux/amd64 with Python 3.11.14. They cover real seeded
+  configuration, all three roles, restoration of the original selector rejection,
+  inline credentials, request schema failure, swallowed network exceptions, the
+  existing nonempty `.gitignore` S0 check, packaging and run-JSON routing.
+- A fresh default `uv sync --frozen --no-dev --no-editable` installation contained
+  254 packages and passed `uv pip check`. Test dependencies lived in a separate
+  directory; pytest and mypy were absent from the production installation.
+- The installed-package smoke passed in a second container with `--network none`,
+  no checkout mount, cwd `/tmp`, and `python -I`. S0 filtering, all three native
+  configuration cases and runtime imports passed. Network attempts, forbidden
+  process attempts and model calls were zero. Installed implementation hashes
+  matched the tested source.
+
+The existing `LH production initialization` workflow executes this expanded smoke
+automatically. In addition to S0 and import evidence it retains
+`native-configuration/native-configuration.json`, the seeded config, and each
+role's `metadata.json`, `native-config.before.yaml` and `request.json`.
+
+This proves configuration admission and packaging through the startup boundary.
+It does not execute the native command or verify provider authentication, model
+inference or a complete benchmark. No Beacon/Jenkins platform changes or DeepSWE
+rerun were made for this follow-up.
+
+## 2026-11-26 · Default runtime dependencies and initialization smoke
+
+The dependency audit against PR head `69e22ba6a` found one missing default LH
+dependency: `pathspec==1.1.1`. It is now in `project.dependencies`; the empty `lh`
+extra remains for compatibility. All 318 non-project package records in `uv.lock`
+are unchanged, and uv 0.9.30 `lock --check` passes. See [DEPENDENCIES.md](DEPENDENCIES.md)
+for direct, deferred and conditional imports and package resources. The final
+change preserves the concurrent default-dependency fix and regression in
+`cc54be6e6`; the lockfile is identical to that commit.
+
+Production installation was verified in Linux/amd64 with the harness builder's
+uv 0.9.30 image, CPython 3.11.14, and:
+
+```sh
+uv sync --frozen --no-dev --no-editable --python 3.11 \
+  --python-platform x86_64-manylinux_2_28
+```
+
+The fresh environment contains 254 packages, including pathspec 1.1.1, and has
+neither pytest nor mypy installed. `uv pip check` reports no incompatible packages.
+The installed package retains the `lh` extra metadata. All 63 PACT source/resource
+hashes match the manifest; the native config, process protocol schema, requirement
+files and bundled pathspec wheel are present and readable.
+
+A second container mounted only the installed runtime and an empty evidence
+directory, with no checkout mount and `--network none`. From `/tmp` it ran:
+
+```sh
+/opt/jiuwenswarm-host/venv/bin/python -I \
+  -m jiuwenswarm.lh.initialization_smoke \
+  --check-native-imports --output /smoke-output
+```
+
+The installed controller reached `s0_frozen`, read and applied the nonempty
+`.gitignore`, and verified the real Core candidate, S0 checkpoint and snapshot.
+The role-call ledger and worker call count remained zero. The isolated native
+bootstrap/import check also passed for `process_cli.machine` and `process_cli.main`
+from site-packages. It did not execute either entrypoint or contact a provider.
+
+Twenty-five targeted tests passed on macOS/Python 3.11, covering initialization,
+Core packaging, snapshot resources and run-JSON routing. The new negative control
+blocks only pathspec resolution: real S0 initialization then fails with
+`ModuleNotFoundError` retained in `selection.json`, phase `created`, no S0 snapshot
+and zero role/worker calls. Another control makes the optional native check throw
+after successful S0 and verifies the smoke returns failure rather than a false pass.
+
+```sh
+python -m pytest -q -o addopts='' --confcutdir=tests/lh \
+  tests/lh/test_initialization_smoke.py tests/lh/test_pact_core_sources.py \
+  tests/lh/test_snapshot_resources.py tests/lh/test_lh_run_json.py
+```
+
+The `LH production initialization` workflow repeats the fresh default installation
+and network-disabled installed-package smoke on relevant changes. It preserves
+the smoke JSON, selection, snapshot and native import logs even on failure.
+These checks establish installation and initialization coverage; no model task,
+DeepSWE rerun, native role execution or external grader was run for this change.
+
+## Default production installation
+
+From a clean checkout, run the platform's production install and check the installed package metadata:
+
+```sh
+uv sync --frozen --no-dev --no-editable
+uv run --no-sync python -I -c 'from importlib.metadata import requires, version; assert "pathspec==1.1.1" in requires("workswarm"); print(version("pathspec"))'
+```
+
+On macOS with Python 3.13.3 this installed `pathspec` 1.1.1. The installed
+`capture_workspace` kept a tracked file and an untracked file re-included by
+`.gitignore`, and excluded an ignored file and directory from the frozen view.
+
+## Source-based WorkRuntime
+
+Both workflows import `jiuwenswarm.pact_core`. Run the workflow regressions from a
+fresh checkout with the project's base and test dependencies installed:
+
+```sh
+python -m pytest -q -o addopts='' --confcutdir=tests/lh tests/lh/test_pact_core_sources.py \
+  tests/lh/test_suite_flow.py::test_shared_suite_restores_p1_planning_recall_and_localization_before_review \
+  tests/lh/test_portable_flow.py::test_third_agent_runs_same_controller_without_native_packages
+python -m pytest -q -o addopts='' --confcutdir=tests/long_horizon tests/long_horizon/test_campaign_migration.py \
+  tests/long_horizon/test_original_task_benchmark.py::test_real_core_original_task_p0_clarification_and_sealed_latest_candidate
+```
+
+The two workflow cases run real WorkRuntime operations on temporary Git repositories
+with scripted roles and check the exported candidate and delivery. The native bridge
+case separately checks that the original-task adapter seals its latest candidate.
+
+On macOS with Python 3.13.3, commit `610d87e1e` passed 68 targeted controller,
+CLI and public-check tests and 17 native bridge, evidence and migration tests.
+Through the process CLI, scripted `suite` and `benchmark` runs each delivered
+the requested file from a clean checkout and again from an offline installation
+of the WorkSwarm distribution. These fixtures did not call a model or run an
+external grader.
+
+Both the sdist and the wheel contained all 58 WorkRuntime Python files and
+five runtime resources. The Python syntax trees matched the pinned upstream
+artifact after normalizing package imports, and the resource bytes matched
+exactly. The 101 controller and native bridge files matched the manifest.
+The only nested dependency wheel was the public `pathspec==1.1.1` artifact.
+
+## Historical wheel installation at `6a6e643e2` (2026-11-25)
+
+The source distribution and the WorkSwarm wheel built from it contain the same
+three pinned artifacts. Both PACT wheels match their respective source Git
+blobs byte for byte. The pathspec wheel matches the public hash in the base
+branch's lockfile. All 108 embedded Python files matched `SOURCE.json` in both
+archives.
+
+On macOS with Python 3.13.3, two isolated environments started with the existing
+JiuwenSwarm base dependencies. Each installed WorkSwarm, pathspec, and its PACT
+variant from the main wheel using pip with indexes and cache disabled. Both LH
+console entrypoints and the historical Campaign module produced their help
+output. Appending bytes to a copy of the pathspec wheel caused pip to reject
+that install at the hash check.
+
+The installed suite passed 53 targeted packaging, CLI, run-JSON, portable
+workflow and suite tests with scripted roles. The separate Campaign environment
+passed all 42 tests in `test_pact.py` and `test_controller.py`, including 16
+subtests. The original dependency declarations and all 318 existing dependency
+lock entries matched `develop`.
+
+## 2026-11-25 · Controller `732f364`
+
+The shared controller and role ports match long-horizon-controller
+`732f3640546334a3730b5c6ae408680a17dd325f`. The previous JiuwenSwarm PR head
+was `ddc88ec606785a29b2e9a549d4ea9ac095ba4f4d`.
+All 108 embedded Python files match the hashes in `SOURCE.json`. All 58
+installed PACT Core Python files match the wheel pinned by that manifest.
+
+The embedded `tests/lh` suite finished with 507 passing cases and 44 skips
+across parallel and serial runs. The new fingerprint test passed after
+its fixture was given a valid saved Work progress record. The bounded
+deadline-only case exhausted its 120-second window during the main run
+and passed when rerun on its own.
+
+The new embedded regression checks that changes to diagnostic wording
+preserve the public review retry fingerprint. New evidence or user
+decisions change the fingerprint, and the receipts retain the diagnostics.
+The two native `--lh --help` entrypoints and the ordinary process CLI help
+all exit zero on macOS with Python 3.13.3.
+
+The upstream external-adapter checkout passed 25 selected protocol controls
+for saved draft recovery, recovery refusals, interruption, and stable
+public review retry decisions. Those controls use scripted roles on the
+pinned upstream source. The JiuwenSwarm entry continues saved Work via
+`--work-id` and `--expected-revision`. Persistent-session recovery and
+automatic retry scheduling run through the upstream external adapter.
+
+## 2026-11-23 · Controller `ccb4adc`
+
+Source: `long-horizon-controller@ccb4adc6ab3bf1e592db978603a0a165ae3c2c47`.
+PR base head before this update: `7f04d86a29236032c62d590855a078adc55e2894`.
+Environment: macOS, Python 3.13.3, and the exact PACT Core wheel recorded in
+`SOURCE.json`. These controls use scripted roles and synthetic native processes;
+no provider inference or independently graded benchmark was run.
+
+### LH and native bridge
+
+| Scope | Passing cases | Skips |
+| --- | ---: | ---: |
+| Function-based pytest controls, 42 files | 750 | 44 |
+| unittest controls, eight files | 129 | 13 |
+| Combined unique cases | 879 | 57 |
+
+The unittest files also passed 57 subtests. The scope is `tests/lh` plus
+`tests/long_horizon`, excluding the three historical standalone Core/SDK files
+listed below. Linux root, UID-drop and optional native-runtime controls retain
+their platform/dependency skips.
+
+Function-based cases ran with `-n 8 --dist worksteal`; unittest files ran in
+separate serial pytest processes. Pytest 9 subtest report serialization is
+incompatible with the installed xdist transport for several existing unittest
+subtest values, so unittest cases were verified without xdist.
+
+Two deadline-only controls exhausted their 120-second windows under parallel
+load; both passed a serial rerun. One historical question-persistence control
+was updated to explicitly select interactive mode, matching the upstream test
+and preserving its original unresolved-question assertion; both parameter cases
+then passed.
+
+Specific checks include:
+
+- Work-bound planning/checkpoint recovery, independent criterion review,
+  cancellation, review admission, public checks and candidate delivery.
+- Public reference probe/compare results, JSON checkpoint semantics and rejection
+  of candidate-generated receipts as independent reference evidence.
+- 49 native worker protocol cases, with 12 subtests.
+- 17 controls that launch real synthetic native subprocesses through the stage
+  bootstrap, checking frozen-view hashes, log/SQLite state isolation, cancellation
+  receipts, continuation and tool-free configuration.
+- Existing native transport retry and public-test write-guard controls. Fake
+  protocol fixtures deliberately select their fake executable; bootstrap isolation
+  is tested separately through the actual companion entry.
+
+The underlying source was also compared after import relocation and MemGraph
+renaming: 94 source files match exactly after those transformations. Local CLI,
+native guard, retry and delivery-helper adaptations are described in `SOURCE.json`.
+All 108 recorded Python file hashes were read back successfully.
+
+### Ordinary process CLI and entrypoint smoke tests
+
+The process CLI suite has 983 passing cases and one skip: the remaining files
+pass 963 cases with one skip, and the shared-session exit/failure injection file
+passes its 20 cases serially. Running that file in parallel
+can produce `SESSION_BUSY` instead of the injected shutdown failure. It is kept
+separate from the remaining process CLI files.
+
+Both `jiuwenswarm --lh --help` and `jiuwenswarm-process --lh --help` exit zero and
+show the new finishing options. `jiuwenswarm-process --help` exits zero on its
+ordinary parser.
+
+### Historical compatibility limits
+
+`tests/long_horizon/test_controller.py`, `test_pact.py` and
+`test_native_tool_free.py` belong to the older standalone Core/SDK integration.
+Their compatibility limits were already recorded on PR #2 before this update;
+they are excluded from the new suite passing count. Four failures from the
+controller/SDK files were reproduced on the unchanged old head with the same
+installed environment. The old standalone workflow's default public-test guard
+is retained.
+
+Linux DAC CI and real-model end-to-end acceptance are separate checks. Local
+formatters and static-analysis tools were not run, following the repository's
+collaboration constraints.
+
+### Reproduction
+
+After installing the exact PACT wheel and the repository's test dependencies:
+
+```bash
+# Serial invocation avoids unittest subtest serialization and tight-window load.
+uv run --no-sync pytest tests/lh tests/long_horizon \
+  --ignore=tests/long_horizon/test_controller.py \
+  --ignore=tests/long_horizon/test_pact.py \
+  --ignore=tests/long_horizon/test_native_tool_free.py -o addopts=''
+
+uv run --no-sync pytest tests/unit_tests/process_cli \
+  --ignore=tests/unit_tests/process_cli/test_exit_process.py \
+  -W ignore::SyntaxWarning -o addopts=''
+uv run --no-sync pytest tests/unit_tests/process_cli/test_exit_process.py \
+  -W ignore::SyntaxWarning -o addopts=''
+```

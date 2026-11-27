@@ -331,6 +331,17 @@ def _write_stderr(stream: TextIO, message: str) -> None:
 
 
 def main() -> None:
+    if "--lh" in sys.argv[1:]:
+        # ``--lh`` 走 long-horizon 控制器流程；不带该参数时保持原有行为。
+        from jiuwenswarm.lh.cli import main as lh_main, split_lh_flag
+        from jiuwenswarm.lh.run_json import execute_lh_run_json, find_run_json
+
+        remaining = split_lh_flag(sys.argv[1:])[1]
+        run_json, lh_argv = find_run_json(remaining)
+        if run_json is not None:
+            # ``--run-json FILE --lh``：run JSON 给出题目与工作区，--lh 之后的参数配置控制器。
+            sys.exit(execute_lh_run_json(run_json, lh_argv))
+        sys.exit(lh_main(remaining, prog="jiuwenswarm-process --lh"))
     parser = build_parser()
     args = parser.parse_args()
     if (

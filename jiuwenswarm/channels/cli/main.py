@@ -13,6 +13,11 @@ logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
 
 
 def main() -> None:
+    if "--lh" in sys.argv[1:]:
+        # ``--lh`` 走 long-horizon 控制器流程；不带该参数时保持原有行为。
+        from jiuwenswarm.lh.cli import main as lh_main, split_lh_flag
+
+        sys.exit(lh_main(split_lh_flag(sys.argv[1:])[1], prog="jiuwenswarm --lh"))
     # 启动阶段（模块导入、YAML 配置加载、日志 handler 创建、dotenv 解析、
     # 参数解析）被 Ctrl+C 中断时，避免抛出裸 KeyboardInterrupt 堆栈——与
     # run_chat 内部的优雅退出语义（exit 130）保持一致。

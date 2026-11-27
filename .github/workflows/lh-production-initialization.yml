@@ -1,0 +1,84 @@
+name: LH production initialization
+on:
+  push:
+    paths:
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'jiuwenswarm/**/*.py'
+      - 'jiuwenswarm/resources/**'
+      - 'jiuwenswarm/channels/process_cli/protocol/schema.json'
+      - 'jiuwenswarm/pact_core/adapters/profiles/**'
+      - 'jiuwenswarm/pact_core/runtime/dashboard_assets/**'
+      - 'tests/lh/**'
+      - '.github/workflows/lh-production-initialization.yml'
+  pull_request:
+    paths:
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'jiuwenswarm/**/*.py'
+      - 'jiuwenswarm/resources/**'
+      - 'jiuwenswarm/channels/process_cli/protocol/schema.json'
+      - 'jiuwenswarm/pact_core/adapters/profiles/**'
+      - 'jiuwenswarm/pact_core/runtime/dashboard_assets/**'
+      - 'tests/lh/**'
+      - '.github/workflows/lh-production-initialization.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  production-install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # The same uv 0.9.30 / Python 3.13 Bookworm image used by the harness builder.
+      RUNTIME_IMAGE: ghcr.io/astral-sh/uv@sha256:47965cdc9d53a515f68f78241161c901e70051ce428f12e791bd7fe19f6a631a
+      RUNTIME_VOLUME: lh-production-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set evidence directory
+        run: echo "SMOKE_OUTPUT=$RUNNER_TEMP/lh-initialization-smoke" >> "$GITHUB_ENV"
+      - name: Install production dependencies and package
+        run: |
+          mkdir -p "$SMOKE_OUTPUT"
+          docker volume create "$RUNTIME_VOLUME"
+          docker run --rm --platform linux/amd64 \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/source,readonly" \
+            --mount "type=volume,source=$RUNTIME_VOLUME,target=/opt/jiuwenswarm-host" \
+            --env UV_PROJECT_ENVIRONMENT=/opt/jiuwenswarm-host/venv \
+            --env UV_PYTHON_INSTALL_DIR=/opt/jiuwenswarm-host/python \
+            --env UV_LINK_MODE=copy \
+            "$RUNTIME_IMAGE" /bin/sh -ec '
+              mkdir -p /tmp/src
+              cp -a /source/. /tmp/src/
+              cd /tmp/src
+              uv python install 3.11
+              uv sync --frozen --no-dev --no-editable --python 3.11 \
+                --python-platform x86_64-manylinux_2_28
+            '
+      - name: Validate installed controller and native configurations without model calls
+        run: |
+          docker run --rm --platform linux/amd64 --network none --workdir /tmp \
+            --mount "type=volume,source=$RUNTIME_VOLUME,target=/opt/jiuwenswarm-host,readonly" \
+            --mount "type=bind,source=$SMOKE_OUTPUT,target=/smoke-output" \
+            "$RUNTIME_IMAGE" /opt/jiuwenswarm-host/venv/bin/python -I \
+              -m jiuwenswarm.lh.initialization_smoke --check-native-imports --output /smoke-output
+      - name: Make frozen snapshots readable to the artifact uploader
+        if: always()
+        run: |
+          if [ -d "$SMOKE_OUTPUT" ]; then
+            sudo chown -hR "$(id -u):$(id -g)" "$SMOKE_OUTPUT"
+          fi
+      - name: Preserve initialization evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: lh-production-initialization
+          path: ${{ env.SMOKE_OUTPUT }}
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Remove the installed runtime
+        if: always()
+        run: docker volume rm --force "$RUNTIME_VOLUME"
