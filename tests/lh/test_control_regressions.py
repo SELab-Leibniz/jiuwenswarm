@@ -95,7 +95,7 @@ class FixturePlugin(GenericPlugin):
 
 
 class CoreRegression(unittest.IsolatedAsyncioTestCase):
-    async def run_fixture(self, baseline, steps, *, expired=False):
+    async def run_fixture(self, baseline, steps, *, expired=False, max_turns=2):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
@@ -112,7 +112,7 @@ class CoreRegression(unittest.IsolatedAsyncioTestCase):
             budget_seconds=120,
             turn_timeout_seconds=120,
             budget_started_at_unix=time.time() - 121 if expired else time.time(),
-            max_turns=2,
+            max_turns=max_turns,
             control_profile="bounded",
             verify_command=VERIFY,
             worktree_root=root / "worktrees",
@@ -494,7 +494,11 @@ class ResumeCandidateHistory(unittest.IsolatedAsyncioTestCase):
     run_fixture = CoreRegression.run_fixture
 
     async def test_good_p0_receipt_survives_explicit_resume_without_worker_replay(self):
-        root, repo, calls, _, selection = await self.run_fixture(BAD, [(GOOD, "completed"), (BAD, "timeout")])
+        # P0 passes. P1 consumes the single consecutive stall and the same
+        # Work must still expose the verified P0 on resume without another Worker.
+        root, repo, calls, _, selection = await self.run_fixture(
+            BAD, [(GOOD, "completed"), (BAD, "timeout")], max_turns=1
+        )
         runtime = WorkRuntime(repo, worktree_root=root / "worktrees")
         state = runtime.read_work(selection["work_id"])
         frozen = state.advisory[FixturePlugin(calls).spec.input_key]
@@ -507,7 +511,7 @@ class ResumeCandidateHistory(unittest.IsolatedAsyncioTestCase):
             budget_seconds=120,
             turn_timeout_seconds=120,
             budget_started_at_unix=frozen["budget_started_at_unix"],
-            max_turns=2,
+            max_turns=1,
             control_profile="bounded",
             verify_command=VERIFY,
             worktree_root=root / "worktrees",
