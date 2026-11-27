@@ -284,7 +284,7 @@ async def test_early_audit_triggers_after_unattended_resolution(tmp_path, git_re
 
 @pytest.mark.parametrize("backend", ["chrys", "jiuwenswarm"])
 @pytest.mark.asyncio
-async def test_verified_worker_fix_reopens_question_resolution(tmp_path, git_repo_factory, backend):
+async def test_identical_verified_candidate_does_not_reopen_question_resolution(tmp_path, git_repo_factory, backend):
     state = {
         "resolution_replies": [
             {
@@ -303,17 +303,17 @@ async def test_verified_worker_fix_reopens_question_resolution(tmp_path, git_rep
     )
 
     assert not outcome.internal_failure, selection["internal_failure"]
-    assert selection["internal_accepted"] and selection["delivered"]
-    # The Worker fixed a failing public check, so the next decision goes to
-    # the resolver even though the consecutive-stall limit is one.
-    assert state["resolution_calls"] == 2
-    assert state["worker"] >= 2
-    assert selection["long_horizon"]["assumptions"]
-    assert all(
-        round_["clarification_status"] == "completed" for round_ in selection["long_horizon"]["resolution_rounds"]
-    )
-    assert work.acceptance is not None and work.unresolved_assumptions == ()
-    assert (args.workdir / "greeting.txt").read_text() == "hello\n"
+    # The public check already passed when the resolver requested this repair.
+    # The repeated Worker produces exactly the same tree and leaves the question open.
+    assert outcome.stop_reason == "clarification_stalled"
+    assert not selection["internal_accepted"] and not selection["delivered"]
+    assert state["resolution_calls"] == 1
+    rounds = selection["long_horizon"]["resolution_rounds"]
+    assert [r["status"] for r in rounds] == ["worker_fix_required", "clarification_stalled"]
+    details = [json.loads((args.output / r["record"]).read_bytes()) for r in rounds]
+    assert details[0]["candidate_tree"] == details[1]["candidate_tree"] == work.candidate.tree
+    assert rounds[0]["unresolved_question_ids"] == rounds[1]["unresolved_question_ids"]
+    assert work.verification.status == "passed" and work.unresolved_assumptions
 
 
 @pytest.mark.parametrize("backend", ["chrys", "jiuwenswarm"])

@@ -23,6 +23,7 @@ import time
 import uuid
 from dataclasses import asdict
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 from jiuwenswarm.channels.process_cli.machine_io import (
@@ -35,6 +36,8 @@ from jiuwenswarm.channels.process_cli.protocol import (
     RunStatus,
     RuntimeErrorInfo,
 )
+
+from .publication import apply_candidate, caller_tracked, git_env
 
 LH_EVENT_ENABLED = "lh.enabled"
 LH_EVENT_FINISHED = "lh.finished"
@@ -116,6 +119,8 @@ def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProce
         cwd=cwd,
         check=check,
         capture_output=True,
+        stdin=subprocess.DEVNULL,
+        env=git_env(),
         text=True,
     )
 
@@ -126,22 +131,20 @@ def prepare_arena(source: Path, arena: Path) -> Path:
     shutil.copytree(source, work, symlinks=True, ignore=shutil.ignore_patterns(".git", ".pact"))
     _git(work, "init", "-q")
     _git(work, "add", "-A")
+    # The fresh index cannot infer files force-added despite .gitignore.
+    ignored = []
+    for name in caller_tracked(source, ignored_only=True):
+        relative = Path(os.fsdecode(name))
+        path = work / relative
+        if ".pact" not in relative.parts and (path.is_symlink() or path.is_file()):
+            ignored.append(name)
+    if ignored:
+        subprocess.run(
+            ["git", "--literal-pathspecs", "add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"],
+            cwd=work, env=git_env(), input=b"\0".join(ignored) + b"\0", capture_output=True, check=True,
+        )
     _git(work, "commit", "-q", "--allow-empty", "--no-verify", "-m", "S0")
     return work
-
-
-def apply_candidate(selection: Path, target: Path) -> list[str]:
-    """Apply the exported candidate patch to ``target``; return changed paths."""
-    report = json.loads(selection.read_text(encoding="utf-8"))
-    export = report.get("export")
-    if not isinstance(export, dict) or not export.get("patch"):
-        raise RuntimeError("selection has no exported candidate patch")
-    patch = Path(export["patch"])
-    if not patch.read_bytes().strip():
-        return []
-    names = _git(target, "apply", "--numstat", "--binary", str(patch)).stdout
-    _git(target, "apply", "--binary", "--whitespace=nowarn", str(patch))
-    return [line.split("\t", 2)[2] for line in names.splitlines() if line.count("\t") >= 2]
 
 
 def collect_usage(output: Path) -> dict[str, int | float]:
@@ -193,6 +196,7 @@ async def run_lh_document(source: str, lh_argv: list[str], writer: OneShotWriter
     with tempfile.TemporaryDirectory(prefix="jiuwenswarm-lh-arena-") as scratch:
         scratch_path = Path(scratch)
         options.workdir = prepare_arena(target, scratch_path)
+        baseline = _git(options.workdir, "rev-parse", "HEAD^{tree}").stdout.strip()
         options.prompt = run_input.input
         if options.output is None:
             options.output = Path(tempfile.gettempdir()) / "jiuwenswarm-lh" / f"{options.task_id}-{options.trial_id}"
@@ -216,12 +220,24 @@ async def run_lh_document(source: str, lh_argv: list[str], writer: OneShotWriter
         )
         outcome = await run_controller(options)
         changed: list[str] = []
+        verified_tree: str | None = None
         apply_error: str | None = None
         if outcome.selection is not None and outcome.candidate_available:
             try:
-                changed = apply_candidate(outcome.selection, target)
-            except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as exc:
-                detail = exc.stderr if isinstance(exc, subprocess.CalledProcessError) else str(exc)
+                cancelled = Event()
+                publication = asyncio.create_task(asyncio.to_thread(
+                    apply_candidate, outcome.selection, target, options.workdir, baseline,
+                    work_id=outcome.work_id, deadline=args.original_deadline_unix, cancelled=cancelled,
+                ))
+                try:
+                    changed, verified_tree = await asyncio.shield(publication)
+                except asyncio.CancelledError:
+                    cancelled.set()
+                    # Keep the arena alive until its publication reader has stopped.
+                    await asyncio.gather(publication, return_exceptions=True)
+                    raise
+            except (OSError, KeyError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+                detail = exc.stderr.decode(errors="replace") if isinstance(exc, subprocess.CalledProcessError) and isinstance(exc.stderr, bytes) else str(exc)
                 apply_error = f"{type(exc).__name__}: {detail}"[:2000]
         usage = collect_usage(options.output)
         _event(
@@ -231,12 +247,13 @@ async def run_lh_document(source: str, lh_argv: list[str], writer: OneShotWriter
                 "long_horizon": True,
                 "outcome": asdict(outcome) | {"selection": str(outcome.selection) if outcome.selection else None},
                 "applied_files": changed,
+                "verified_workspace_tree": verified_tree,
                 "apply_error": apply_error,
                 "elapsed_seconds": round(time.time() - started, 3),
             },
         )
     code = outcome_exit_code(outcome)
-    if apply_error is not None:
+    if code == 0 and apply_error is not None:
         code = 5
     if code == 0:
         return OneShotRunResult(

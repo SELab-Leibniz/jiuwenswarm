@@ -1,7 +1,7 @@
 # Native JiuwenSwarm long-horizon suite
 
 This package embeds the shared controller from
-[`long-horizon-controller@bdf12e3`](https://github.com/SELab-Leibniz/long-horizon-controller/tree/bdf12e3db614becd77084a978f54368eb3e2c77c).
+[`long-horizon-controller@193a464`](https://github.com/SELab-Leibniz/long-horizon-controller/tree/193a46487966b6a1c0ef52f86c7b24dca2d7bbe9).
 `SOURCE.json` records the full revision, file hashes and integration adaptations.
 The native bridge remains in `jiuwenswarm.long_horizon`.
 
@@ -16,6 +16,11 @@ Both ordinary CLI entrypoints retain their existing behavior without `--lh`.
 The run-JSON adapter works in a private workspace and applies the published
 candidate patch back to the caller's workspace. Its stdout remains JSONL,
 including `lh.enabled`, `lh.finished` and the terminal `result` record.
+For a Core-accepted candidate, publication requires the caller workspace to match
+S0 or the candidate before applying. It then checks the Git-visible file bytes,
+executable bits and symlink targets against the candidate tree and records it in
+the `lh.finished` payload as `verified_workspace_tree`. A caller already at that
+tree needs no second patch. Partial exports retain a null verified tree.
 
 The default `suite` workflow freezes S0, runs P0, investigates the original
 requirements on S0, constructs a Goal Contract and Initial Plan, runs P1, and

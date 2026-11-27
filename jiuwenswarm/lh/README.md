@@ -1,7 +1,7 @@
 # `--lh`：long-horizon 控制器
 
 本目录是 [long-horizon-controller](https://github.com/SELab-Leibniz/long-horizon-controller)
-`bdf12e3db614becd77084a978f54368eb3e2c77c` 中与 agent 无关的共享控制器核心，
+`193a46487966b6a1c0ef52f86c7b24dca2d7bbe9` 中与 agent 无关的共享控制器核心，
 只保留 JiuwenSwarm 原生 worker 插件和通用插件。Harbor/Terminal-Bench、Chrys、
 Chrys ACP、C7 基线和固定公共 CA overlay 仍留在控制器仓库，不随本集成发布。
 候选归档、公开检查回执和交付使用的通用辅助函数随核心一起迁入；
@@ -46,7 +46,9 @@ jiuwenswarm-process --run-json /tmp/jiuwenswarm_run.json --lh [控制器参数..
   不能再给 prompt、`--task`、`--cwd`；未知参数、`mode` 非 `agent.code.normal`、带
   `session_id`/`model`/`output_schema`/`host_tools` 时，输出 `failed` 的 `result` 记录并以 2 退出。
 - 控制器在工作区的私有副本里运行，`.pact` 账本和角色 worktree 不进入原仓库；结束后只把导出的
-  候选补丁 `git apply` 回原工作区，由调用方照常采集 diff。
+  候选补丁写回原工作区，由调用方采集 diff。对已验收的候选，写回前核对工作区仍与 S0 或候选一致，
+  写回后逐项核对文件内容、可执行位和符号链接目标。`lh.finished` 事件的 `verified_workspace_tree` 字段记录核对通过的 Git 树。
+  工作区已包含相同候选时直接返回，部分候选仍可导出供外部评分，该字段为 `null`。
 - 标准输出仍是机器协议 JSONL：启动时一条 `lh.enabled` 事件（启用证据，含 workflow、预算、
   控制器输出目录），结束时一条 `lh.finished` 事件（stop_reason、应用的文件），最后一条
   `result`，其 `usage` 为全部原生 worker 调用的 `usage.json` 之和。
