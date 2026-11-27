@@ -1,5 +1,27 @@
 # Suite synchronization validation
 
+## 2026-11-27 · Accepted candidate publication and dynamic round limits
+
+Upstream `193a46487966b6a1c0ef52f86c7b24dca2d7bbe9` (controller PR #91)
+checks the live tree before finalizing an accepted persistent solver session.
+The native run-JSON port checks the caller's tree at patch publication. It uses the
+existing Core export and requires no additional model call or caller-side commit.
+
+- A clean checkout of `19492db38` installed on macOS arm64 / Python 3.13.3 with
+  `uv sync --frozen --no-dev --no-editable` using the populated offline cache.
+  The production environment included `pathspec==1.1.1` and the embedded
+  `jiuwenswarm.pact_core`. The installed initialization and native-import smoke passed.
+- The installed `jiuwenswarm-process --run-json FILE --lh` ran both workflows with
+  scripted role replies. Suite admitted 3 implementation rounds with a consecutive-stall
+  limit of 2 (19 role calls total). Benchmark admitted 2 implementation rounds
+  (5 role calls). Both returned exit code 0, applied `greeting.txt`, and reported
+  the exact selected Git tree in the terminal `lh.finished` event. The caller's HEAD
+  and index tree were preserved. Both Core reports recorded external grading as `not_run`.
+- The scheduling regression covers 72 successive rounds of verified progress and 72
+  acceptance-review admissions, including a ledger reload halfway through. Paired
+  unattended-resolver fixtures verify that a repeated, already-passing candidate
+  with the same outstanding question consumes the consecutive-stall allowance.
+
 ## 2026-11-26 · Controller bdf12e3 and native Work continuation
 
 The embedded controller follows upstream PRs #89 and #90. The native CLI

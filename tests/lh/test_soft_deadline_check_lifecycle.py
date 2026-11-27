@@ -284,6 +284,7 @@ def _recovery_controller(now, *, output, hard=28_800.0, soft=27_360.0, calls=Non
         control_profile="bounded",
         max_turns=None,
         budget_seconds=hard,
+        deadline_only_budget_seconds=None,
     )
     controller._soft_deadline = soft
     controller._original_deadline = hard
